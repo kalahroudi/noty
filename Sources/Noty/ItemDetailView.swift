@@ -47,7 +47,7 @@ struct ItemDetailView: View {
                             .overlay(alignment: .leading) { Rectangle().fill(Theme.highlight).frame(width: 3).clipShape(RoundedRectangle(cornerRadius: 2)) }
                     }
                     ForEach(item.imageAttachments, id: \.self) { full($0) }
-                    SectionLabel("Notes"); NotesEditor(markdown: $notes, height: 160)
+                    SectionLabel("Notes"); NotesEditor(markdown: $notes, minHeight: 200)
                     if !item.otherAttachments.isEmpty {
                         SectionLabel("Files")
                         ForEach(item.otherAttachments, id: \.self) { name in

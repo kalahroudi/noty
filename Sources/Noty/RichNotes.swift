@@ -148,6 +148,7 @@ final class NotesTextView: NSTextView {
 
 struct RichNotesEditor: NSViewRepresentable {
     @Binding var markdown: String
+    @Binding var contentHeight: CGFloat
     let handle: NotesEditorHandle
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -164,23 +165,37 @@ struct RichNotesEditor: NSViewRepresentable {
         tv.typingAttributes = [.font: NSFont.systemFont(ofSize: NotesMarkdown.baseSize), .foregroundColor: NSColor.labelColor]
         scroll.drawsBackground = false; scroll.hasVerticalScroller = false
         handle.view = tv
+        tv.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.measure), name: NSView.frameDidChangeNotification, object: tv)
+        context.coordinator.textView = tv
+        DispatchQueue.main.async { context.coordinator.measure() }
         return scroll
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
+        context.coordinator.parent = self
         guard let tv = scroll.documentView as? NotesTextView, tv.window?.firstResponder !== tv else { return }
         // Only an outside change (an agent edited the file) replaces the text; the user's own typing never loops back.
-        if NotesMarkdown.markdown(tv.attributedString()) != markdown { tv.textStorage?.setAttributedString(NotesMarkdown.attributed(markdown)) }
+        if NotesMarkdown.markdown(tv.attributedString()) != markdown { tv.textStorage?.setAttributedString(NotesMarkdown.attributed(markdown)); DispatchQueue.main.async { context.coordinator.measure() } }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
-        let parent: RichNotesEditor
+        var parent: RichNotesEditor
+        weak var textView: NotesTextView?
         init(_ p: RichNotesEditor) { parent = p }
         func textDidChange(_ n: Notification) {
             guard let tv = n.object as? NSTextView else { return }
             parent.markdown = NotesMarkdown.markdown(tv.attributedString())
+            measure()
+        }
+        /// The height the whole text needs at the current width, so the box can grow with it.
+        @objc func measure() {
+            guard let tv = textView, let lm = tv.layoutManager, let tc = tv.textContainer else { return }
+            lm.ensureLayout(for: tc)
+            let h = ceil(lm.usedRect(for: tc).height + tv.textContainerInset.height * 2)
+            if abs(h - parent.contentHeight) > 0.5 { DispatchQueue.main.async { self.parent.contentHeight = h } }
         }
     }
 }
@@ -188,7 +203,9 @@ struct RichNotesEditor: NSViewRepresentable {
 /// Notes with a small formatting bar: bold, italic, underline, strike, size and colour.
 struct NotesEditor: View {
     @Binding var markdown: String
-    var height: CGFloat = 110
+    /// The box starts this tall and grows with the text, so long notes are never hidden behind a scroll.
+    var minHeight: CGFloat = 110
+    @State private var contentHeight: CGFloat = 0
     @State private var handle = NotesEditorHandle()
     private static let colors: [(String, UInt32)] = [("Red", 0xD64545), ("Orange", 0xD9822B), ("Green", 0x2E9E5B), ("Blue", 0x2F6FED), ("Purple", 0x8A5CD6)]
 
@@ -216,7 +233,7 @@ struct NotesEditor: View {
                 Spacer()
             }.padding(.horizontal, 6).padding(.vertical, 4)
             Divider()
-            RichNotesEditor(markdown: $markdown, handle: handle).frame(height: height).padding(.horizontal, 4)
+            RichNotesEditor(markdown: $markdown, contentHeight: $contentHeight, handle: handle).frame(height: max(minHeight, contentHeight)).padding(.horizontal, 4)
         }
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 9))
         .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.hairline))

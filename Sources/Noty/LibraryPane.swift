@@ -103,15 +103,15 @@ struct ItemRow: View {
             Button { lib.selectedID = item.id } label: {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.title).font(.system(size: 13.5, weight: .medium)).strikethrough(item.done).foregroundStyle(item.done ? .secondary : .primary).lineLimit(2)
-                    if !item.quote.isEmpty {
-                        Text(item.quote).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).padding(.leading, 7)
+                    if !item.previewText.isEmpty {
+                        Text(item.previewText).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).padding(.leading, 7)
                             .overlay(alignment: .leading) { Rectangle().fill(Theme.highlight).frame(width: 2.5).clipShape(RoundedRectangle(cornerRadius: 1)) }
                     }
                     HStack(spacing: 6) {
-                        if item.kind != .task { Badge(text: item.kind.label, kind: .neutral) }
+                        KindBadge(kind: item.kind)
                         if item.today { Badge(text: "Today", kind: .warn) }
-                        if !item.attachments.isEmpty { Label("\(item.attachments.count)", systemImage: "photo").font(.system(size: 11)).foregroundStyle(.secondary) }
-                        if let a = item.sourceApp { Label(a, systemImage: item.sourceURL == nil ? "macwindow" : "link").font(.system(size: 11)).foregroundStyle(.secondary).labelStyle(.titleAndIcon) }
+                        if !item.attachments.isEmpty { Label("\(item.attachments.filter { !$0.hasSuffix(".html") }.count)", systemImage: "paperclip").font(.system(size: 11)).foregroundStyle(.secondary) }
+                        if let a = item.sourceApp { SourceLabel(app: a, hasLink: item.sourceURL != nil) }
                         ForEach(item.tags.prefix(3), id: \.self) { Badge(text: "#\($0)", kind: .neutral) }
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
@@ -165,14 +165,15 @@ struct InspectorView: View {
 
                 if !draft.quote.isEmpty {
                     label("Highlighted")
-                    Text(draft.quote).font(.system(size: 12.5)).textSelection(.enabled).padding(9).frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 8))
+                    MarkdownView(text: draft.quote, imageURL: { n in draft.imageAttachments.indices.contains(n - 1) ? lib.store.attachmentURL(draft.imageAttachments[n - 1]) : nil })
+                        .padding(9).background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 8))
                         .overlay(alignment: .leading) { Rectangle().fill(Theme.highlight).frame(width: 3).clipShape(RoundedRectangle(cornerRadius: 2)) }
                 }
-                if !draft.attachments.isEmpty {
+                let shownInline = draft.quote.contains("attachment:")
+                if !draft.imageAttachments.isEmpty && !shownInline {
                     label("Images")
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 6)], spacing: 6) {
-                        ForEach(draft.attachments, id: \.self) { name in
+                        ForEach(draft.imageAttachments, id: \.self) { name in
                             let url = lib.store.attachmentURL(name)
                             if let img = NSImage(contentsOf: url) {
                                 Button { NSWorkspace.shared.open(url) } label: {
@@ -183,12 +184,22 @@ struct InspectorView: View {
                         }
                     }
                 }
+                if !draft.otherAttachments.isEmpty {
+                    label("Files")
+                    ForEach(draft.otherAttachments, id: \.self) { name in
+                        Button { NSWorkspace.shared.open(lib.store.attachmentURL(name)) } label: {
+                            HStack(spacing: 6) { Image(systemName: name.hasSuffix(".pdf") ? "doc.richtext" : "doc"); Text(name).lineLimit(1); Spacer(); Image(systemName: "arrow.up.right.square").foregroundStyle(.secondary) }
+                                .font(.system(size: 12)).padding(8).background(Theme.card, in: RoundedRectangle(cornerRadius: 7)).overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.hairline)).contentShape(Rectangle())
+                        }.buttonStyle(.plain).help("Open file")
+                    }
+                }
                 if draft.sourceApp != nil || draft.sourceURL != nil {
+                    label("Source")
                     HStack(spacing: 6) {
-                        Image(systemName: draft.sourceURL == nil ? "macwindow" : "link").foregroundStyle(.secondary)
+                        Image(systemName: draft.sourceURL == nil ? "arrow.up.forward.app" : "link").foregroundStyle(.secondary)
                         if let u = draft.sourceURL, let url = URL(string: u) { Link(draft.sourceTitle ?? u, destination: url).lineLimit(1) }
                         else { Text(draft.sourceTitle ?? draft.sourceApp ?? "").lineLimit(1) }
-                        if let a = draft.sourceApp, draft.sourceURL != nil { Text("· \(a)").foregroundStyle(.secondary) }
+                        if let a = draft.sourceApp, draft.sourceURL != nil || draft.sourceTitle != nil { Text("· \(a)").foregroundStyle(.secondary) }
                     }.font(.system(size: 12))
                 }
 
@@ -238,9 +249,14 @@ struct InspectorView: View {
         Button { copyText(item.deepLink, "Link copied. Paste it anywhere to open this item in Noty.") } label: { Label("Copy link", systemImage: "link") }
         Button { copyText(item.agentReference(store: store), "Copied for your agent. It includes the id the Noty tools understand.") } label: { Label("Copy for agent", systemImage: "sparkles") }
         Button { copyText(item.markdown(store: store), "Markdown copied.") } label: { Label("Copy as Markdown", systemImage: "doc.text") }
+        Button {
+            let html = item.htmlAttachment.flatMap { try? Data(contentsOf: store.attachmentURL($0)) }
+            ClipboardContent.writeFormatted(markdown: item.resolvedQuote(store: nil), html: html, plain: item.plainQuote, to: .general)
+            AppModel.shared.show("Copied with formatting. Paste into Word, Mail or Pages.")
+        } label: { Label("Copy with formatting", systemImage: "textformat") }
         Divider()
         Button { copyText(item.title, "Title copied.") } label: { Label("Copy title", systemImage: "textformat") }
-        if !item.quote.isEmpty { Button { copyText(item.quote, "Highlighted text copied.") } label: { Label("Copy highlighted text", systemImage: "highlighter") } }
+        if !item.quote.isEmpty { Button { copyText(item.plainQuote, "Highlighted text copied.") } label: { Label("Copy highlighted text", systemImage: "highlighter") } }
         if !item.notes.isEmpty { Button { copyText(item.notes, "Notes copied.") } label: { Label("Copy notes", systemImage: "note.text") } }
     }
 }

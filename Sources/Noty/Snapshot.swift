@@ -92,7 +92,7 @@ struct PopoverShot: View {
         }
         let research = ["Work", "Q4 Launch", "Research"]
         lib.items = [
-            it("Set a latency budget per user journey", research, quote: "Measure p99 at the edge, alert on budget burn, and review the budget every quarter.", app: "Safari", today: true, tags: ["latency"]),
+            it("Set a latency budget per user journey", research, quote: "## Latency budgets\nSet a budget **per user journey**, not per service. See the [guide](https://example.com/p99).\n\n- Measure p99 at the edge\n- Alert on budget *burn*\n  - not on raw spikes\n\n| Journey | Budget |\n| --- | --- |\n| Checkout | 400 ms |\n| Search | 250 ms |", app: "Safari", today: true, tags: ["latency"]),
             it("Read RFC 9114 section on stream limits", research, app: "Preview", kind: .reference),
             it("Compare connection pooling libraries", research, app: "Slack", done: true),
             it("Remove serial calls in checkout service", ["Work", "Q4 Launch", "Build"], quote: "…removing serial calls, long before any rewrite is justified.", app: "Xcode"),

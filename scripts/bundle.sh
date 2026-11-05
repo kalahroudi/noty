@@ -66,12 +66,16 @@ PLIST
 # Ad-hoc signed by default. With SIGN_IDENTITY set to a "Developer ID Application: ..." identity it is signed
 # for distribution with the hardened runtime.
 if [ "${SIGN_IDENTITY:--}" = "-" ]; then
+  # Ad-hoc signatures normally identify an app by the hash of its code, which changes on every build, so macOS forgets granted
+  # permissions (Accessibility, Automation) after each update. Pinning the designated requirement to the bundle id keeps one stable identity.
   SIGN_FLAGS=(--force --sign -)
+  APP_SIGN_FLAGS=(--force --sign - --requirements '=designated => identifier "com.kalahroudi.noty"')
 else
   SIGN_FLAGS=(--force --timestamp --options runtime --entitlements scripts/Noty.entitlements --sign "$SIGN_IDENTITY")
+  APP_SIGN_FLAGS=("${SIGN_FLAGS[@]}")
 fi
 codesign "${SIGN_FLAGS[@]}" "$APP/Contents/MacOS/noty-mcp"
-codesign "${SIGN_FLAGS[@]}" "$APP"
+codesign "${APP_SIGN_FLAGS[@]:-${SIGN_FLAGS[@]}}" "$APP"
 codesign --verify --strict "$APP"
 
 echo "Built $APP"

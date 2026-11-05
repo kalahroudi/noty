@@ -111,7 +111,7 @@ final class CaptureModel {
 
     init(captured: Captured) {
         self.captured = captured
-        title = captured.text.isEmpty && !captured.images.isEmpty ? "Image from \(captured.app ?? "screen")" : Item.makeTitle(from: captured.text)
+        title = Self.makeTitle(captured)
     }
 
     /// Where it can go: the last-used category for this app first, then everything else; typing filters; a new path can be created on the spot.
@@ -129,6 +129,20 @@ final class CaptureModel {
         if typed.count == 1, let ws = Prefs.shared.lastPath(for: captured.app)?.first, ws != NotyStore.inbox { creates.append([ws] + typed) }
         creates.append(typed)
         return hit + creates.filter { !paths.contains($0) }
+    }
+
+    static func makeTitle(_ c: Captured) -> String {
+        if !c.text.isEmpty { return Item.makeTitle(from: MarkdownText.stripped(c.markdown.isEmpty ? c.text : c.markdown)) }
+        if c.attachments.contains(where: { $0.ext == "pdf" }) { return "PDF from \(c.app ?? "clipboard")" }
+        if c.attachments.contains(where: { $0.ext == "png" }) { return "Image from \(c.app ?? "screen")" }
+        return c.attachments.isEmpty ? "" : "File from \(c.app ?? "clipboard")"
+    }
+
+    /// Replaces the capture with what is on the clipboard right now.
+    func useClipboard() {
+        let c = SelectionReader.fromClipboard(app: captured.app)
+        guard !c.isEmpty else { return }
+        captured = c; title = Self.makeTitle(c)
     }
 
     func isNew(_ path: [String]) -> Bool { !LibraryModel.shared.allCategoryPaths.contains(path) }
@@ -149,13 +163,13 @@ final class CaptureModel {
     private func commit(path: [String], askAgent: Bool) {
         let lib = LibraryModel.shared
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty || !captured.text.isEmpty || !captured.images.isEmpty else { onClose(); return }
+        guard !t.isEmpty || !captured.isEmpty else { onClose(); return }
         if isNew(path) { lib.createCategory(path) }
-        var item = Item(title: t.isEmpty ? Item.makeTitle(from: captured.text) : t, kind: kind, today: today, quote: captured.text,
+        var item = Item(title: t.isEmpty ? Item.makeTitle(from: captured.text) : t, kind: kind, today: today, quote: captured.body,
                         sourceApp: captured.app, sourceTitle: captured.windowTitle, sourceURL: captured.url, path: path)
-        for (i, png) in captured.images.enumerated() {
-            if let name = try? lib.store.saveAttachment(png, itemID: item.id, index: i + 1) { item.attachments.append(name) }
-            else { AppModel.shared.show("Couldn't save one of the images, the text was added.", error: true) }
+        for (i, a) in captured.attachments.enumerated() {
+            if let name = try? lib.store.saveAttachment(a.data, itemID: item.id, index: i + 1, ext: a.ext) { item.attachments.append(name) }
+            else { AppModel.shared.show("Couldn't save one of the attachments, the rest was added.", error: true) }
         }
         guard let saved = lib.add(item) else { onClose(); return }
         Prefs.shared.rememberPath(path, for: captured.app)
@@ -203,14 +217,21 @@ struct CaptureView: View {
                 Spacer()
                 Segmented(options: ItemKind.allCases.map { ($0, $0.label) }, selection: $model.kind)
             }
+            if model.captured.isEmpty {
+                Button { model.useClipboard() } label: { Label("Use what's on the clipboard", systemImage: "doc.on.clipboard") }.buttonStyle(Pill())
+                Text("Nothing was selected. Copy something first, or type a title below.").font(.system(size: 11)).foregroundStyle(.secondary)
+            }
             if !model.captured.text.isEmpty {
-                Text(model.captured.text).font(.system(size: 12.5)).lineLimit(4).frame(maxWidth: .infinity, alignment: .leading)
+                Text(MarkdownText.stripped(model.captured.body)).font(.system(size: 12.5)).lineLimit(4).frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8).background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 7))
                     .overlay(alignment: .leading) { Rectangle().fill(Theme.highlight).frame(width: 3).clipShape(RoundedRectangle(cornerRadius: 2)) }
                 // (images are shown below the text)
                 if let src = model.captured.windowTitle ?? model.captured.app {
-                    Label(src, systemImage: model.captured.url == nil ? "macwindow" : "link").font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                    Label(src, systemImage: model.captured.url == nil ? "arrow.up.forward.app" : "link").font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 }
+            }
+            if !model.captured.attachments.filter({ $0.ext != "png" && $0.ext != "html" }).isEmpty {
+                HStack(spacing: 6) { ForEach(Array(model.captured.attachments.filter { $0.ext != "png" && $0.ext != "html" }.enumerated()), id: \.offset) { _, a in Badge(text: ".\(a.ext)", kind: .accent) } }
             }
             if !model.captured.images.isEmpty {
                 ScrollView(.horizontal) {

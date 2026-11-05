@@ -1,4 +1,6 @@
 import XCTest
+import AppKit
+import PDFKit
 @testable import NotyKit
 
 final class KitTests: XCTestCase {
@@ -99,6 +101,83 @@ final class KitTests: XCTestCase {
         XCTAssertEqual(ClipboardContent.extract(from: pb).images.count, 1)
         let html = "<p>x</p><img src=\"data:image/png;base64,\(png.base64EncodedString())\">"
         XCTAssertEqual(ClipboardContent.dataImages(in: html).count, 1)
+    }
+
+    // MARK: rich content
+
+    func testHTMLToMarkdownKeepsStructure() {
+        let html = """
+        <html><head><style>p{color:red}</style><!--[if gte mso 9]><xml>junk</xml><![endif]--></head><body>
+        <h1>Release &amp; notes</h1><p>Some <b>bold</b>, <i>italic</i> and a <a href="https://x.test/a b">link</a>.<br>Next line</p>
+        <ul><li>one</li><li>two<ul><li>nested</li></ul></li></ul><ol><li>first</li><li>second</li></ol>
+        <blockquote><p>quoted</p></blockquote><pre><code>let a = 1\nlet b = 2</code></pre>
+        <table><tr><th>Name</th><th>Size</th></tr><tr><td>base</td><td>74 MB</td></tr></table></body></html>
+        """
+        let md = HTMLMarkdown.convert(html)
+        XCTAssertTrue(md.hasPrefix("# Release & notes"), md)
+        XCTAssertTrue(md.contains("**bold**") && md.contains("*italic*") && md.contains("[link](https://x.test/a%20b)"), md)
+        XCTAssertTrue(md.contains("- one\n- two\n  - nested"), md)
+        XCTAssertTrue(md.contains("1. first\n2. second"), md)
+        XCTAssertTrue(md.contains("> quoted"), md)
+        XCTAssertTrue(md.contains("```\nlet a = 1\nlet b = 2\n```"), md)
+        XCTAssertTrue(md.contains("| Name | Size |\n| --- | --- |\n| base | 74 MB |"), md)
+        XCTAssertFalse(md.contains("junk") || md.contains("color:red"), md)
+    }
+
+    func testRichTextToMarkdown() throws {
+        let body = NSFont.systemFont(ofSize: 12)
+        let s = NSMutableAttributedString()
+        s.append(NSAttributedString(string: "Big title\n", attributes: [.font: NSFont.boldSystemFont(ofSize: 24)]))
+        s.append(NSAttributedString(string: "Plain and ", attributes: [.font: body]))
+        s.append(NSAttributedString(string: "bold", attributes: [.font: NSFont.boldSystemFont(ofSize: 12)]))
+        s.append(NSAttributedString(string: " and ", attributes: [.font: body]))
+        s.append(NSAttributedString(string: "site", attributes: [.font: body, .link: URL(string: "https://x.test")!]))
+        s.append(NSAttributedString(string: ".\nMore body text here to make 12pt the common size.\n", attributes: [.font: body]))
+        let rtf = try XCTUnwrap(s.rtf(from: NSRange(location: 0, length: s.length)))
+        let back = try XCTUnwrap(NSAttributedString(rtf: rtf, documentAttributes: nil))
+        let md = RichText.markdown(from: back).markdown
+        XCTAssertTrue(md.hasPrefix("# Big title"), md)
+        XCTAssertTrue(md.contains("Plain and **bold** and [site](https://x.test)."), md)
+    }
+
+    func testClipboardHTMLKeepsOriginalAndMarkdown() {
+        let pb = NSPasteboard(name: NSPasteboard.Name("noty-test-\(UUID().uuidString)")); pb.clearContents()
+        pb.setString("Title\nitem one", forType: .string)
+        pb.setString("<h2>Title</h2><ul><li>item one</li></ul>", forType: .html)
+        let r = ClipboardContent.extract(from: pb)
+        XCTAssertTrue(r.markdown.contains("## Title") && r.markdown.contains("- item one"), r.markdown)
+        XCTAssertEqual(r.attachments.map(\.ext), ["html"]); XCTAssertEqual(r.text, "Title\nitem one")
+        // plain text wrapped in trivial HTML adds nothing, so no markdown or html copy is kept
+        let pb2 = NSPasteboard(name: NSPasteboard.Name("noty-test-\(UUID().uuidString)")); pb2.clearContents()
+        pb2.setString("just words", forType: .string); pb2.setString("<p>just words</p>", forType: .html)
+        let r2 = ClipboardContent.extract(from: pb2)
+        XCTAssertTrue(r2.markdown.isEmpty); XCTAssertTrue(r2.attachments.isEmpty)
+    }
+
+    func testClipboardPDFAndCopiedFiles() throws {
+        let img = NSImage(size: NSSize(width: 200, height: 100)); img.lockFocus(); NSColor.blue.setFill(); NSRect(x: 0, y: 0, width: 200, height: 100).fill(); img.unlockFocus()
+        let doc = PDFDocument(); doc.insert(try XCTUnwrap(PDFPage(image: img)), at: 0)
+        let pdf = try XCTUnwrap(doc.dataRepresentation())
+        let pb = NSPasteboard(name: NSPasteboard.Name("noty-test-\(UUID().uuidString)")); pb.clearContents(); pb.setData(pdf, forType: NSPasteboard.PasteboardType("com.adobe.pdf"))
+        XCTAssertEqual(Set(ClipboardContent.extract(from: pb).attachments.map(\.ext)), ["pdf", "png"])
+
+        let dir = tmp(); try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true); defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("spec.rtf")
+        let s = NSMutableAttributedString(string: "Spec title\n", attributes: [.font: NSFont.boldSystemFont(ofSize: 24)])
+        s.append(NSAttributedString(string: "Body text of the document goes here.\nMore body text.\n", attributes: [.font: NSFont.systemFont(ofSize: 12)]))
+        try XCTUnwrap(s.rtf(from: NSRange(location: 0, length: s.length))).write(to: file)
+        let pb2 = NSPasteboard(name: NSPasteboard.Name("noty-test-\(UUID().uuidString)")); pb2.clearContents(); pb2.writeObjects([file as NSURL])
+        let r = ClipboardContent.extract(from: pb2)
+        XCTAssertTrue(r.attachments.contains { $0.ext == "rtf" }); XCTAssertTrue(r.markdown.hasPrefix("# Spec title"), r.markdown)
+        XCTAssertTrue(r.text.contains("Body text of the document"))
+    }
+
+    func testMarkdownStrippingAndQuoteResolution() {
+        XCTAssertEqual(MarkdownText.stripped("# Title\n**bold** [a](http://x) ![i](attachment:1)\n- item"), "Title\nbold a [image]\nitem")
+        var it = Item(title: "t", quote: "see ![image](attachment:1)", attachments: ["abc-1.png", "abc-2.html"])
+        let store = NotyStore(root: URL(fileURLWithPath: "/tmp/lib"))
+        XCTAssertEqual(it.resolvedQuote(store: store), "see ![image](/tmp/lib/_attachments/abc-1.png)")
+        XCTAssertEqual(it.previewText, "see [image]"); it.quote = ""; XCTAssertEqual(it.previewText, "")
     }
 
     func testDecodeRejectsFilesWithoutHeader() {

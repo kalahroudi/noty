@@ -58,12 +58,15 @@ private func dict(_ it: Item, full: Bool = true, store: NotyStore? = nil) -> [St
     var d: [String: Any] = ["id": it.id, "title": it.title, "kind": it.kind.rawValue, "done": it.done, "today": it.today,
                             "path": it.pathLabel.replacingOccurrences(of: " › ", with: "/"), "tags": it.tags]
     if full {
-        d["quote"] = it.quote; d["notes"] = it.notes
+        d["quote"] = it.resolvedQuote(store: store); d["notes"] = it.notes
         var src: [String: Any] = [:]
         if let v = it.sourceApp { src["app"] = v }; if let v = it.sourceTitle { src["title"] = v }; if let v = it.sourceURL { src["url"] = v }
         if !src.isEmpty { d["source"] = src }
         d["created"] = ISO8601DateFormatter().string(from: it.created)
-        if !it.attachments.isEmpty, let st = store { d["image_files"] = it.attachments.map { st.attachmentURL($0).path } }
+        if !it.attachments.isEmpty, let st = store {
+            d["image_files"] = it.imageAttachments.map { st.attachmentURL($0).path }
+            d["attachment_files"] = it.attachments.map { ["type": ($0 as NSString).pathExtension, "path": st.attachmentURL($0).path] }
+        }
     } else if !it.quote.isEmpty { d["quote"] = String(it.quote.prefix(160)) }
     return d
 }
@@ -118,7 +121,7 @@ let allTools: [Tool] = {
         return try text(["total": hits.count, "items": hits.prefix(limit).map { dict($0, full: false) }] as [String: Any])
     })
 
-    t.append(Tool(name: "get_item", description: "Everything about one item: highlighted text, notes, source app/title/URL, tags, category and image_files (absolute paths of images captured with it, which you can open and look at).",
+    t.append(Tool(name: "get_item", description: "Everything about one item: highlighted text as Markdown (headings, lists, links and tables kept; images appear as file paths), notes, source app/title/URL, tags, category, and attachment_files (absolute paths of pictures, PDFs, the original HTML and any copied files, which you can open and read).",
                   properties: ["id": prop("string", "Item id, a prefix of at least 6 characters, or a noty://item/… link.")], required: ["id"], readOnly: true) { a in
         let s = try store(); return try text(dict(try find(s, try requireString(a, "id")), store: s))
     })

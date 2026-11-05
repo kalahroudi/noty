@@ -29,7 +29,39 @@ public enum Deeplink: Equatable, Sendable {
     }
 }
 
+public enum MarkdownText {
+    /// Markdown without its markers, for one-line previews and plain-text copies.
+    public static func stripped(_ md: String) -> String {
+        var t = md
+        t = t.replacingOccurrences(of: #"!\[[^\]]*\]\([^)]*\)"#, with: "[image]", options: .regularExpression)
+        t = t.replacingOccurrences(of: #"\[([^\]]*)\]\([^)]*\)"#, with: "$1", options: .regularExpression)
+        t = t.replacingOccurrences(of: #"(?m)^\s*(#{1,6}\s+|>\s?|[-*+]\s+|```.*$)"#, with: "", options: .regularExpression)
+        t = t.replacingOccurrences(of: #"(\*\*\*|\*\*|\*|~~|`)"#, with: "", options: .regularExpression)
+        t = t.replacingOccurrences(of: #"(?m)^\|?\s*-{3,}.*$\n?"#, with: "", options: .regularExpression)
+        return t.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 public extension Item {
+    var imageAttachments: [String] { attachments.filter { $0.lowercased().hasSuffix(".png") } }
+    var htmlAttachment: String? { attachments.first { $0.lowercased().hasSuffix(".html") } }
+    var otherAttachments: [String] { attachments.filter { !$0.lowercased().hasSuffix(".png") && !$0.lowercased().hasSuffix(".html") } }
+    /// The highlighted text without Markdown syntax.
+    var plainQuote: String { MarkdownText.stripped(quote) }
+    /// First line of the highlighted text, for the list.
+    var previewText: String { plainQuote.split(whereSeparator: \.isNewline).first.map(String.init) ?? "" }
+
+    /// The quote with `![image](attachment:N)` placeholders turned into real file paths, for agents and exports.
+    func resolvedQuote(store: NotyStore?) -> String {
+        guard quote.contains("attachment:"), let store, let re = try? NSRegularExpression(pattern: #"attachment:(\d+)"#) else { return quote }
+        let ns = quote as NSString; var out = quote
+        for m in re.matches(in: quote, range: NSRange(location: 0, length: ns.length)).reversed() {
+            let n = Int(ns.substring(with: m.range(at: 1))) ?? 0
+            if imageAttachments.indices.contains(n - 1) { out = (out as NSString).replacingCharacters(in: m.range, with: store.attachmentURL(imageAttachments[n - 1]).path) }
+        }
+        return out
+    }
+
     var deepLink: String { Deeplink.url(item: id) }
 
     /// Everything an agent needs in one paste: the link, the id to use with the Noty tools, the text, notes, source and image files.
@@ -37,20 +69,23 @@ public extension Item {
         var l = ["Noty item: \(title)", "Link: \(deepLink)", "Id: \(id)  (read it with the noty MCP tool get_item)", "Category: \(path.joined(separator: "/"))",
                  "Type: \(kind.label)\(done ? ", done" : "")\(today ? ", today" : "")"]
         if !tags.isEmpty { l.append("Tags: " + tags.map { "#\($0)" }.joined(separator: " ")) }
-        if !quote.isEmpty { l.append("Highlighted:\n" + quote.split(separator: "\n", omittingEmptySubsequences: false).map { "> \($0)" }.joined(separator: "\n")) }
+        let q = resolvedQuote(store: store)
+        if !q.isEmpty { l.append("Highlighted (Markdown):\n" + q.split(separator: "\n", omittingEmptySubsequences: false).map { "> \($0)" }.joined(separator: "\n")) }
         if !notes.isEmpty { l.append("Notes:\n\(notes)") }
         var src = [sourceApp, sourceTitle, sourceURL].compactMap { $0 }
         if !src.isEmpty { l.append("Source: " + src.removeFirst() + (src.isEmpty ? "" : " · " + src.joined(separator: " · "))) }
-        if !attachments.isEmpty { l.append("Images:\n" + attachments.map { "- " + (store?.attachmentURL($0).path ?? $0) }.joined(separator: "\n")) }
+        if !attachments.isEmpty { l.append("Attached files:\n" + attachments.map { "- " + (store?.attachmentURL($0).path ?? $0) }.joined(separator: "\n")) }
         return l.joined(separator: "\n")
     }
 
     /// A Markdown note for pasting into documents and chats.
     func markdown(store: NotyStore? = nil) -> String {
         var l = ["## \(title)", ""]
-        if !quote.isEmpty { l += quote.split(separator: "\n", omittingEmptySubsequences: false).map { "> \($0)" } + [""] }
+        let q = resolvedQuote(store: store)
+        if !q.isEmpty { l += q.split(separator: "\n", omittingEmptySubsequences: false).map { "> \($0)" } + [""] }
         if !notes.isEmpty { l += [notes, ""] }
-        for a in attachments { l.append("![](\(store?.attachmentURL(a).path ?? a))") }
+        if !quote.contains("attachment:") { for a in imageAttachments { l.append("![](\(store?.attachmentURL(a).path ?? a))") } }
+        for a in otherAttachments { l.append("[\(a)](\(store?.attachmentURL(a).path ?? a))") }
         let meta = [pathLabel.replacingOccurrences(of: " › ", with: "/"), sourceURL ?? sourceTitle ?? sourceApp].compactMap { $0 }
         l.append("_\(meta.joined(separator: " · "))_")
         return l.joined(separator: "\n")

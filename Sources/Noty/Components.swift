@@ -2,6 +2,7 @@
 
 import SwiftUI
 import AppKit
+import NotyKit
 
 // MARK: Copy
 
@@ -272,3 +273,21 @@ struct DimWhenDisabled: ViewModifier {
     func body(content: Content) -> some View { content.opacity(enabled ? 1 : 0.4) }
 }
 extension View { func dimWhenDisabled() -> some View { modifier(DimWhenDisabled()) } }
+
+/// The item type (task, note, reference, idea) with the same icon everywhere it appears.
+struct KindBadge: View {
+    let kind: ItemKind
+    var body: some View {
+        Label(kind.label, systemImage: kind.symbol).font(.system(size: 10.5, weight: .semibold)).labelStyle(.titleAndIcon)
+            .padding(.horizontal, 7).padding(.vertical, 1.5).foregroundStyle(Theme.onSoft).background(Theme.accentSoft, in: Capsule())
+    }
+}
+
+/// Where an item came from: "from Notes", with an arrow icon so it can't be mistaken for the type or a checkbox.
+struct SourceLabel: View {
+    let app: String
+    var hasLink = false
+    var body: some View {
+        Label("from \(app)", systemImage: hasLink ? "link" : "arrow.up.forward.app").font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+    }
+}

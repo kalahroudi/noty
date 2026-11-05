@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Noty for Mac</title>
+<meta name="description" content="Highlight text anywhere on your Mac, press a shortcut, and it lands in a categorised to-do tree your AI agents can work on.">
+<link rel="icon" href="favicon.png">
+<style>
+:root{--bg:#f6f7f9;--card:#ffffff;--fg:#161b26;--muted:#5d6678;--line:#e1e5ec;--accent:#f5c518;--on-accent:#241c00;--soft:#fff2bd;--code:#eef0f4;--link:#2f6fed}
+@media (prefers-color-scheme:dark){:root{--bg:#12151c;--card:#1b1f29;--fg:#eceef3;--muted:#9aa3b4;--line:#2b3140;--soft:#4a3d0c;--code:#232836;--link:#8fb0ff}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Arial,sans-serif}
+a{color:var(--link)}
+.wrap{max-width:1040px;margin:0 auto;padding:0 20px}
+header{padding:56px 0 28px;display:grid;grid-template-columns:auto 1fr;gap:28px;align-items:center}
+header img{width:132px;height:132px;filter:drop-shadow(0 14px 24px rgba(0,0,0,.25))}
+h1{font-size:clamp(34px,6vw,54px);line-height:1.05;margin:0 0 10px;letter-spacing:-.02em}
+.lead{font-size:clamp(17px,2.4vw,21px);color:var(--muted);margin:0 0 20px;max-width:46ch}
+.btns{display:flex;gap:10px;flex-wrap:wrap}
+.btn{display:inline-block;padding:10px 18px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--fg);text-decoration:none;font-weight:600}
+.btn.p{background:var(--accent);border-color:transparent;color:var(--on-accent)}
+.shot{margin:18px 0 8px}
+.shot img{width:100%;height:auto;border-radius:12px;border:1px solid var(--line);box-shadow:0 24px 60px rgba(0,0,0,.2)}
+.shots2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;margin:18px 0}
+.shots2 img{width:100%;height:auto;border-radius:12px;border:1px solid var(--line)}
+.shots2 figure{margin:0}
+figcaption{color:var(--muted);font-size:14px;margin-top:6px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin:34px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.card h3{margin:0 0 4px;font-size:16px}
+.card p{margin:0;color:var(--muted);font-size:15px}
+mark{background:var(--soft);color:inherit;padding:0 .2em;border-radius:3px}
+h2{font-size:26px;margin:44px 0 10px;letter-spacing:-.01em}
+pre{background:var(--code);border:1px solid var(--line);border-radius:10px;padding:14px;overflow-x:auto;font:13px/1.5 ui-monospace,"SF Mono",Menlo,monospace}
+footer{padding:36px 0 56px;color:var(--muted);font-size:14px}
+@media(max-width:620px){header{grid-template-columns:1fr;text-align:left}header img{width:96px;height:96px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img src="icon.png" alt="Noty app icon: a sheet of paper with one line highlighted and a highlighter pen">
+    <div>
+      <h1>Noty</h1>
+      <p class="lead">Highlight text anywhere on your Mac. Press a shortcut. It lands in a <mark>categorised to-do tree</mark> your AI agents can work on.</p>
+      <div class="btns">
+        <a class="btn p" href="https://github.com/kalahroudi/noty/releases/latest">Download for macOS</a>
+        <a class="btn" href="https://github.com/kalahroudi/noty">View on GitHub</a>
+      </div>
+    </div>
+  </header>
+
+  <div class="shot"><img src="shots/manager-library.png" alt="Noty manager window: workspace tree, items with their highlighted text, and the item inspector"></div>
+
+  <div class="cards">
+    <div class="card"><h3>Capture from any app</h3><p>Select text (or a picture, a PDF, a Word paragraph), press ⌥⌘N, pick a category with the arrow keys, press Return. Headings, lists, links and tables keep their structure.</p></div>
+    <div class="card"><h3>Workspaces and projects</h3><p>Nest categories as deep as you like, for example Projects › mlxplayer › Bugs. They are real folders; every item is a Markdown file.</p></div>
+    <div class="card"><h3>Agents built in (MCP)</h3><p>Connect Claude Code, Claude Desktop or Cursor in one click. Ask an agent to review, split into subtasks, turn items into skills, write Markdown, or fix what they describe.</p></div>
+    <div class="card"><h3>You stay in control</h3><p>Agents propose files; nothing is written until you approve it. Deleting needs an explicit confirmation.</p></div>
+    <div class="card"><h3>Sync without a server</h3><p>Keep the library in iCloud Drive or any folder (Dropbox, Syncthing, git). No account, no cloud service to trust.</p></div>
+    <div class="card"><h3>Light by design</h3><p>A native Swift menu bar app with no dependencies. About 40 MB, and nothing runs while its windows are closed.</p></div>
+  </div>
+
+  <div class="shots2">
+    <figure><img src="shots/capture.png" alt="The capture panel next to a highlighted selection"><figcaption>The capture panel: type, category, title, and where it goes.</figcaption></figure>
+    <figure><img src="shots/popover.png" alt="The menu bar popover with Today and Inbox"><figcaption>The menu bar popover: quick add, Today and Inbox.</figcaption></figure>
+    <figure><img src="shots/manager-library-dark.png" alt="Noty in dark mode"><figcaption>Light and dark, following your Mac.</figcaption></figure>
+    <figure><img src="shots/manager-settings-agents.png" alt="Settings, Agents tab"><figcaption>Agents connect in one click.</figcaption></figure>
+  </div>
+
+  <h2>Install with an AI agent</h2>
+  <p>Paste this into Claude Code or another agent. Noty needs nothing installed first.</p>
+<pre>Install Noty on this Mac.
+1. Run: curl -fsSL https://raw.githubusercontent.com/kalahroudi/noty/main/scripts/install.sh | bash
+2. Noty opens in the menu bar. Tell me to press ⌥⌘N once and allow Accessibility when macOS asks.
+3. Register its MCP server: claude mcp add noty --scope user -- /Applications/Noty.app/Contents/MacOS/noty-mcp
+4. Call get_status and tell me what it reports.
+Never delete my items without asking me first.</pre>
+
+  <h2>Or install by hand</h2>
+  <p>Download the DMG from the <a href="https://github.com/kalahroudi/noty/releases/latest">latest release</a>, drag Noty to Applications, and open it. The app is not notarized yet, so the first time use right-click → Open.</p>
+
+  <footer>Noty is open source. <a href="https://github.com/kalahroudi/noty">github.com/kalahroudi/noty</a></footer>
+</div>
+</body>
+</html>

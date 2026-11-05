@@ -11,8 +11,14 @@ struct Captured {
     var app: String?
     var windowTitle: String?
     var url: String?
-    /// Images found in the selection, as PNG data.
-    var images: [Data] = []
+    /// Structured text (Markdown) when the source had formatting; empty otherwise.
+    var markdown = ""
+    /// Pictures, the original HTML, PDFs and files that came with the selection.
+    var attachments: [Attachment] = []
+    var images: [Data] { attachments.filter { $0.ext == "png" }.map(\.data) }
+    /// What is stored as the item's quote: the structured version when there is one.
+    var body: String { markdown.isEmpty ? text : markdown }
+    var isEmpty: Bool { text.isEmpty && markdown.isEmpty && attachments.isEmpty }
 }
 
 /// The global shortcut (Carbon RegisterEventHotKey: needs no permission and costs nothing while idle).
@@ -60,10 +66,11 @@ enum SelectionReader {
         guard trusted else { return c }
         // ⌘C always runs too: the Accessibility text has no images, and the clipboard has the rich version (text + pictures).
         let copied = await copyFallback()
-        c.images = copied.images
+        c.attachments = copied.attachments; c.markdown = copied.markdown
         let ax = axSelectedText() ?? ""
         let axClean = ax.replacingOccurrences(of: "\u{FFFC}", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
         c.text = copied.text.isEmpty ? axClean : copied.text
+        if c.text.isEmpty, c.markdown.isEmpty, c.attachments.isEmpty { AppLog.info("Capture: nothing selected or copied in \(c.app ?? "unknown app")") }
         return c
     }
 
@@ -88,7 +95,7 @@ enum SelectionReader {
     }
 
     /// Sends ⌘C, reads text and pictures from the clipboard, then puts the old clipboard back.
-    @MainActor private static func copyFallback() async -> (text: String, images: [Data]) {
+    @MainActor private static func copyFallback() async -> ClipboardContent.Result {
         let pb = NSPasteboard.general
         let saved: [[(NSPasteboard.PasteboardType, Data)]] = (pb.pasteboardItems ?? []).map { item in item.types.compactMap { t in item.data(forType: t).map { (t, $0) } } }
         // The shortcut's own keys (⌥⌘ or ⌃⌥) are usually still held. Wait for them to come up, or the app would see ⌥⌘C instead of ⌘C.
@@ -104,7 +111,7 @@ enum SelectionReader {
             try? await Task.sleep(for: .milliseconds(25))
             if pb.changeCount != before { changed = true; break }
         }
-        guard changed else { return ("", []) }
+        guard changed else { return ClipboardContent.Result(text: "", markdown: "", attachments: [], types: []) }
         let result = extract(from: pb)
         pb.clearContents()
         for item in saved {
@@ -115,10 +122,16 @@ enum SelectionReader {
         return result
     }
 
-    static func extract(from pb: NSPasteboard) -> (text: String, images: [Data]) {
+    static func extract(from pb: NSPasteboard) -> ClipboardContent.Result {
         let r = ClipboardContent.extract(from: pb)
-        AppLog.info("Capture clipboard: \(r.images.count) image(s), \(r.text.count) chars, types \(r.types.prefix(14).joined(separator: ", "))")
-        return (r.text, r.images)
+        AppLog.info("Capture clipboard: \(r.attachments.map(\.ext).joined(separator: ",")) attachments, \(r.text.count) chars, markdown \(r.markdown.count) chars, types \(r.types.prefix(16).joined(separator: ", "))")
+        return r
+    }
+
+    /// Whatever is on the clipboard right now (used when nothing was selected, or the app doesn't allow copying a selection).
+    static func fromClipboard(app: String?) -> Captured {
+        let r = extract(from: .general)
+        return Captured(text: r.text, app: app, markdown: r.markdown, attachments: r.attachments)
     }
 }
 
@@ -126,7 +139,7 @@ enum SelectionReader {
 final class ServicesProvider: NSObject {
     @objc func addToNoty(_ pboard: NSPasteboard, userData: String, error: AutoreleasingUnsafeMutablePointer<NSString>) {
         let got = SelectionReader.extract(from: pboard)
-        guard !got.text.isEmpty || !got.images.isEmpty else { return }
-        DispatchQueue.main.async { MainActor.assumeIsolated { CaptureController.shared.present(Captured(text: got.text, app: NSWorkspace.shared.frontmostApplication?.localizedName, images: got.images)) } }
+        guard !got.text.isEmpty || !got.attachments.isEmpty else { return }
+        DispatchQueue.main.async { MainActor.assumeIsolated { CaptureController.shared.present(Captured(text: got.text, app: NSWorkspace.shared.frontmostApplication?.localizedName, markdown: got.markdown, attachments: got.attachments)) } }
     }
 }

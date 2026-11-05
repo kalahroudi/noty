@@ -213,10 +213,11 @@ public final class NotyStore: @unchecked Sendable {
     public func attachmentURL(_ name: String) -> URL { attachmentsDir.appendingPathComponent((name as NSString).lastPathComponent) }
 
     /// Saves PNG data next to the library and returns the file name to store on the item.
-    public func saveAttachment(_ png: Data, itemID: String, index: Int) throws -> String {
+    public func saveAttachment(_ data: Data, itemID: String, index: Int, ext: String = "png") throws -> String {
         try fm.createDirectory(at: attachmentsDir, withIntermediateDirectories: true)
-        let name = "\(itemID.prefix(8).lowercased())-\(index).png"
-        try png.write(to: attachmentURL(name), options: .atomic)
+        let clean = String(ext.lowercased().filter { $0.isLetter || $0.isNumber }.prefix(8))
+        let name = "\(itemID.prefix(8).lowercased())-\(index).\(clean.isEmpty ? "bin" : clean)"
+        try data.write(to: attachmentURL(name), options: .atomic)
         return name
     }
 

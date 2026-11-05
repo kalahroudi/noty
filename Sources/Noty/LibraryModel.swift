@@ -57,6 +57,7 @@ final class LibraryModel {
         guard s === store else { return }
         items = lib.items; categories = lib.categories; proposals = props; conflicts = lib.conflicts
         signature = newSig; loaded = true
+        NotifyScheduler.sync(items)
         if let id = selectedID, !items.contains(where: { $0.id == id }) { selectedID = nil }
     }
 
@@ -113,12 +114,62 @@ final class LibraryModel {
     }
 
     func update(_ item: Item) {
-        let wasDone = items.first { $0.id == item.id }?.done
+        let before = items.first { $0.id == item.id }
+        let wasDone = before?.done
         guard let saved = run("Save the item", { try store.save(item) }) else { return }
         // A finished item leaves the list being viewed (every scope but Done), so its details must not stay open on the right.
         if let wasDone, wasDone != saved.done, selectedID == saved.id { selectedID = nil }
         if let i = items.firstIndex(where: { $0.id == saved.id }) { items[i] = saved }
         ensureCategoryKnown(saved.path)
+        if before?.reminders != saved.reminders || before?.done != saved.done { NotifyScheduler.sync(items) }
+    }
+
+    // MARK: Reminders
+
+    /// Adds a reminder (or a Calendar event) made from highlighted words. Asks for notification access the first time.
+    @discardableResult
+    func addReminder(to id: String, text: String, due: Date, kind: Reminder.Kind, nudge: Bool) async -> Bool {
+        guard var it = item(id) else { return false }
+        var r = Reminder(text: text, due: due, kind: kind, nudge: nudge)
+        if kind == .event {
+            guard await CalendarBridge.shared.request() else {
+                AppModel.shared.show("Allow Noty to use your calendar in System Settings → Privacy & Security → Calendars.", error: true); return false
+            }
+            do { r.eventID = try CalendarBridge.shared.add(title: text, start: due, notes: "From Noty: \(it.title)\n\(it.deepLink)") }
+            catch { report(error, "Add the calendar event"); return false }
+        } else if !(await NotifyScheduler.authorize()) {
+            AppModel.shared.show("Reminder saved, but notifications are off. Allow Noty in System Settings → Notifications to be alerted.", error: true)
+        }
+        it.reminders.append(r); update(it)
+        AppModel.shared.show("\(kind == .event ? "Scheduled" : "Reminder set") for \(ReminderTime.label(due)).")
+        return true
+    }
+
+    func setReminderDone(_ reminderID: String, in id: String, done: Bool) {
+        guard var it = item(id), let i = it.reminders.firstIndex(where: { $0.id == reminderID }) else { return }
+        it.reminders[i].done = done; update(it)
+    }
+
+    func removeReminder(_ reminderID: String, from id: String) {
+        guard var it = item(id) else { return }
+        it.reminders.removeAll { $0.id == reminderID }; update(it)
+    }
+
+    /// Reminders from every open item, plus Calendar events when the user has allowed them, from `start` for `days` days.
+    func agenda(from start: Date, days: Int) -> [AgendaEntry] {
+        let cal = Calendar.current
+        let from = cal.startOfDay(for: start), to = cal.date(byAdding: .day, value: days, to: from) ?? start
+        var out: [AgendaEntry] = []
+        for it in items where !it.done {
+            for r in it.reminders where r.due < to && (r.due >= from || (!r.done && from <= cal.startOfDay(for: Date()))) {
+                out.append(AgendaEntry(id: r.id, date: r.due, title: r.text, detail: it.pathLabel, kind: r.kind, itemID: it.id, done: r.done))
+            }
+        }
+        let known = Set(items.flatMap { $0.reminders.compactMap(\.eventID) })
+        for e in CalendarBridge.shared.events(from: from, to: to) where !known.contains(e.eventIdentifier ?? "") {
+            out.append(AgendaEntry(id: "cal-" + (e.eventIdentifier ?? UUID().uuidString), date: e.startDate, title: e.title ?? "Event", detail: e.calendar?.title ?? "Calendar", kind: .event, fromCalendar: true))
+        }
+        return out.sorted { $0.date < $1.date }
     }
 
     func toggleDone(_ id: String) { if var it = item(id) { it.done.toggle(); update(it) } }

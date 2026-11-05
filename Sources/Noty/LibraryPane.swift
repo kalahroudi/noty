@@ -25,9 +25,11 @@ struct LibraryPane: View {
                 PaneHeader(title: lib.query.isEmpty ? lib.scope.title : "Search", subtitle: subtitle(items.count)) {
                     HStack(spacing: 8) {
                         SearchBox(prompt: "Search everything", text: Bindable(lib).query).frame(width: 160)
-                        Button { StackController.shared.toggle() } label: { Label("Stack", systemImage: "rectangle.stack") }.buttonStyle(Pill()).fixedSize()
+                        Button { AgendaController.shared.toggle() } label: { Image(systemName: "calendar").frame(width: 14, height: 16) }.buttonStyle(Pill()).fixedSize().accessibilityLabel("Agenda")
+                            .help("Reminders and calendar for today, tomorrow and the week (\(Prefs.shared.agendaHotkey.label))")
+                        Button { StackController.shared.toggle() } label: { Image(systemName: "rectangle.stack").frame(width: 14, height: 16) }.buttonStyle(Pill()).fixedSize().accessibilityLabel("Stack")
                             .help("Your open tasks one at a time, with the arrow keys (\(Prefs.shared.stackHotkey.label))")
-                        Button { lib.snip(into: nil) } label: { Label("Snip", systemImage: "viewfinder") }.buttonStyle(Pill()).fixedSize()
+                        Button { lib.snip(into: nil) } label: { Image(systemName: "viewfinder").frame(width: 14, height: 16) }.buttonStyle(Pill()).fixedSize().accessibilityLabel("Snip")
                             .help("Drag over an area of the screen. It is saved as a new task you can edit.")
                         Button { request = AgentRequest(items: Array(items.prefix(25))) } label: { Label("Ask agent", systemImage: "sparkles") }
                             .buttonStyle(Pill(kind: .primary)).disabled(items.isEmpty).fixedSize()
@@ -204,7 +206,8 @@ struct InspectorView: View {
                     }
                 }
 
-                group("Notes") { NotesEditor(markdown: $draft.notes) }
+                group("Notes") { NotesEditor(markdown: $draft.notes, itemID: item.id) }
+                if !draft.reminders.isEmpty { group("Reminders") { RemindersList(itemID: item.id) } }
 
                 group("Attachments") { attachments }
 
@@ -246,6 +249,7 @@ struct InspectorView: View {
         .onChange(of: tagText) { _, t in draft.tags = t.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
         .onChange(of: item.done) { _, d in if draft.done != d { draft.done = d } }
         .onChange(of: item.attachments) { _, a in if draft.attachments != a { draft.attachments = a } }
+        .onChange(of: item.reminders) { _, r in if draft.reminders != r { draft.reminders = r } }
         .onDisappear { flush() }
     }
 
@@ -343,13 +347,13 @@ struct InspectorView: View {
 @MainActor func copyText(_ text: String, _ message: String) { Clipboard.copy(text); AppModel.shared.show(message) }
 
 /// Lets an inspector button pick the agent action the sheet opens with.
-@MainActor final class AgentSheetPreset { static let shared = AgentSheetPreset(); var action: AgentAction? }
+@MainActor final class AgentSheetPreset { static let shared = AgentSheetPreset(); var action: AgentAction?; var extra: String? }
 
 struct AskAgentSheet: View {
     let items: [Item]
     @Environment(\.dismiss) private var dismiss
     @State private var action: AgentAction = AgentSheetPreset.shared.action ?? .review
-    @State private var extra = ""
+    @State private var extra = AgentSheetPreset.shared.extra ?? ""
     @State private var copied = false
 
     private var prompt: String { AgentPrompt.build(action, items: items, extra: extra) }
@@ -374,7 +378,7 @@ struct AskAgentSheet: View {
                     .help(claude == nil ? "Claude Code isn't installed. Copy the prompt into any agent instead." : "Opens Terminal in your library folder and starts Claude Code with this prompt")
             }
         }.padding(20).frame(width: 560)
-        .onDisappear { AgentSheetPreset.shared.action = nil }
+        .onDisappear { AgentSheetPreset.shared.action = nil; AgentSheetPreset.shared.extra = nil }
     }
 
     /// Hands off to the user's own terminal (no embedded terminal): the prompt goes through a file so quoting can never break it.
@@ -425,6 +429,30 @@ struct AgentResultsPane: View {
                         }.card(padding: 14)
                     }
                 }.padding(22).frame(maxWidth: 760, alignment: .leading)
+            }
+        }
+    }
+}
+
+/// The reminders and scheduled events of one item: when, what was highlighted, done, remove.
+struct RemindersList: View {
+    let itemID: String
+    let lib = LibraryModel.shared
+    var body: some View {
+        VStack(spacing: 6) {
+            ForEach(lib.item(itemID)?.reminders.sorted { $0.due < $1.due } ?? []) { r in
+                HStack(alignment: .top, spacing: 8) {
+                    Button { lib.setReminderDone(r.id, in: itemID, done: !r.done) } label: {
+                        Image(systemName: r.done ? "checkmark.circle.fill" : "circle").foregroundStyle(r.done ? Theme.ok : .secondary).frame(width: 20, height: 20)
+                    }.buttonStyle(.plain).accessibilityLabel(r.done ? "Mark reminder not done" : "Mark reminder done")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(r.text).font(.system(size: 12.5)).strikethrough(r.done).lineLimit(2)
+                        Label(ReminderTime.label(r.due), systemImage: r.kind == .event ? "calendar" : "bell").font(.system(size: 11.5)).foregroundStyle(r.due < Date() && !r.done ? Theme.danger : Theme.onSoft)
+                    }
+                    Spacer(minLength: 0)
+                    Button { lib.removeReminder(r.id, from: itemID) } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary).frame(width: 18, height: 18) }
+                        .buttonStyle(.plain).help("Remove").accessibilityLabel("Remove reminder")
+                }.padding(9).background(Theme.card, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.hairline))
             }
         }
     }

@@ -67,12 +67,17 @@ private func dict(_ it: Item, full: Bool = true, store: NotyStore? = nil) -> [St
         if let v = it.sourceApp { src["app"] = v }; if let v = it.sourceTitle { src["title"] = v }; if let v = it.sourceURL { src["url"] = v }
         if !src.isEmpty { d["source"] = src }
         d["created"] = ISO8601DateFormatter().string(from: it.created)
+        if !it.reminders.isEmpty { d["reminders"] = it.reminders.map { reminderDict($0) } }
         if !it.attachments.isEmpty, let st = store {
             d["image_files"] = it.imageAttachments.map { st.attachmentURL($0).path }
             d["attachment_files"] = it.attachments.map { ["type": ($0 as NSString).pathExtension, "path": st.attachmentURL($0).path] }
         }
     } else if !it.quote.isEmpty { d["quote"] = String(it.quote.prefix(160)) }
     return d
+}
+
+private func reminderDict(_ r: Reminder) -> [String: Any] {
+    ["id": r.id, "text": r.text, "due": ISO8601DateFormatter().string(from: r.due), "type": r.kind.rawValue, "done": r.done, "nudge": r.nudge]
 }
 
 private func kind(_ a: Args) throws -> ItemKind? {
@@ -161,6 +166,25 @@ let allTools: [Tool] = {
         if let v = a["notes"] as? String { it.notes = v }
         if let v = a["append_notes"] as? String, !v.isEmpty { it.notes += (it.notes.isEmpty ? "" : "\n\n") + v }
         return try text(dict(try s.save(it), full: false))
+    })
+
+    t.append(Tool(name: "list_reminders", description: "Reminders and scheduled events the user made from highlighted words, from now on (overdue ones included), soonest first. Use it to keep track of the user's today, tomorrow and week. Each entry has the item id: read the item with get_item for the details.",
+                  properties: ["days": prop("integer", "How many days ahead. Default 7."), "include_done": prop("boolean", "Also finished reminders. Default false.")], required: [], readOnly: true) { a in
+        let lib = try store().load()
+        let end = Date().addingTimeInterval(Double(a["days"] as? Int ?? 7) * 86400); let all = a["include_done"] as? Bool == true
+        let rows = lib.items.filter { !$0.done }.flatMap { it in it.reminders.filter { (all || !$0.done) && $0.due < end }.map { r -> (Date, [String: Any]) in
+            var d = reminderDict(r); d["item_id"] = it.id; d["item_title"] = it.title; d["path"] = it.pathLabel.replacingOccurrences(of: " › ", with: "/"); d["overdue"] = !r.done && r.due < Date()
+            return (r.due, d) } }
+        return try text(["now": ISO8601DateFormatter().string(from: Date()), "reminders": rows.sorted { $0.0 < $1.0 }.map(\.1)])
+    })
+
+    t.append(Tool(name: "add_reminder", description: "Add a reminder to an item. The Noty app notifies the user at that time and shows it in the Agenda.",
+                  properties: ["id": prop("string", "Item id."), "text": prop("string", "What to remind the user of."), "due": prop("string", "When, as an ISO 8601 date and time with a time zone, e.g. 2026-11-06T09:00:00+01:00."),
+                               "nudge": prop("boolean", "Remind again an hour later if still open. Default true.")], required: ["id", "text", "due"]) { a in
+        let s = try store(); var it = try find(s, try requireString(a, "id"))
+        guard let due = ISO8601DateFormatter().date(from: try requireString(a, "due")) else { throw ToolError(message: "due must be an ISO 8601 date and time with a time zone, e.g. 2026-11-06T09:00:00+01:00.") }
+        it.reminders.append(Reminder(text: try requireString(a, "text"), due: due, nudge: a["nudge"] as? Bool ?? true))
+        return try text(dict(try s.save(it), full: true))
     })
 
     t.append(Tool(name: "move_item", description: "Move an item to another category (created if missing).",

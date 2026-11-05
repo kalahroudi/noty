@@ -46,7 +46,20 @@ enum SnapshotMode {
                 return AnyView(StackView(model: m).padding(40).background(Theme.sidebar))
             }
         }
-        return [stack(), stack(zoomed: true), stack(dark: true), detail(), pop(), pop(dark: true), capture(), capture(dark: true), manager(.library), manager(.library, dark: true), manager(.settings), manager(.settings, agents: true), manager(.help)]
+        func agenda(_ tab: AgendaModel.Tab = .today) -> Shot {
+            Shot(name: "agenda\(tab == .today ? "" : "-" + tab.rawValue.lowercased())", dark: false, size: CGSize(width: 940, height: 720)) {
+                let m = AgendaModel(); m.tab = tab
+                return AnyView(AgendaView(model: m).padding(40).background(Theme.sidebar))
+            }
+        }
+        func selection(_ remind: Bool) -> Shot {
+            Shot(name: remind ? "selection-remind" : "selection-bar", dark: false, size: CGSize(width: 420, height: remind ? 360 : 90)) {
+                let m = SelectionModel(suggestion: ReminderTime.suggest(text: "Record a 30 second demo before Friday"))
+                if remind { m.mode = .remind }
+                return AnyView(SelectionMenu(model: m).background(Theme.card, in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.hairline)).padding(30).background(Theme.pane))
+            }
+        }
+        return [agenda(), agenda(.week), selection(false), selection(true), stack(), stack(zoomed: true), stack(dark: true), detail(), pop(), pop(dark: true), capture(), capture(dark: true), manager(.library), manager(.library, dark: true), manager(.settings), manager(.settings, agents: true), manager(.help)]
     }
 
     @MainActor static func render(_ shot: Shot, to dir: String) async {
@@ -117,6 +130,12 @@ struct PopoverShot: View {
             it("Use WAL mode for concurrent readers", ["Inbox"], quote: "Use WAL mode for concurrent readers", app: "Safari", kind: .idea),
             it("Book dentist", ["Personal"]),
         ]
+        let cal = Calendar.current
+        func at(_ day: Int, _ h: Int, _ m: Int = 0) -> Date { cal.date(bySettingHour: h, minute: m, second: 0, of: cal.date(byAdding: .day, value: day, to: cal.startOfDay(for: Date())) ?? Date()) ?? Date() }
+        lib.items[0].reminders = [Reminder(text: "collect feedback from the first 50 users", due: at(0, 17), nudge: true), Reminder(text: "Latency budget review", due: at(1, 10), kind: .event)]
+        lib.items[4].reminders = [Reminder(text: "Add p99 burn alert to dashboard", due: at(0, 15, 30), nudge: true)]
+        lib.items[5].reminders = [Reminder(text: "Reply to Sam about the onboarding doc", due: at(0, 11)), Reminder(text: "Send the hiring panel notes", due: at(2, 9, 30))]
+        lib.items[6].reminders = [Reminder(text: "Use WAL mode for concurrent readers", due: at(3, 14))]
         lib.categories = ["Inbox", "Personal", "Work", "Work/Hiring", "Work/Q4 Launch", "Work/Q4 Launch/Build", "Work/Q4 Launch/Research"].map { CategoryNode(path: $0.split(separator: "/").map(String.init)) }
         lib.expanded = ["Work", "Work/Q4 Launch"]
         if let a = sampleAttachment { lib.items[0].attachments = [a]; lib.items[0].quote += "\n\n![image](attachment:1)" }

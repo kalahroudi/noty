@@ -22,6 +22,13 @@ enum StackHotkeyChoice: String, CaseIterable {
     var keyCode: UInt32 { 40 }
     var modifiers: UInt32 { self == .optCmdK ? 0x100 | 0x800 : 0x1000 | 0x800 }
 }
+/// Global shortcut that opens the Agenda. Carbon key code A=0.
+enum AgendaHotkeyChoice: String, CaseIterable {
+    case optCmdA, ctrlOptA
+    var label: String { self == .optCmdA ? "⌥⌘A" : "⌃⌥A" }
+    var keyCode: UInt32 { 0 }
+    var modifiers: UInt32 { self == .optCmdA ? 0x100 | 0x800 : 0x1000 | 0x800 }
+}
 enum UpdateChannel: String, CaseIterable { case releases, main
     var label: String { self == .releases ? "Releases" : "Main branch" }
 }
@@ -43,6 +50,8 @@ final class Prefs {
     var hotkey: HotkeyChoice { didSet { d.set(hotkey.rawValue, forKey: "hotkey"); Hotkey.shared.register(hotkey) } }
     var stackHotkey: StackHotkeyChoice { didSet { d.set(stackHotkey.rawValue, forKey: "stackHotkey"); registerStackHotkey() } }
     func registerStackHotkey() { Hotkey.shared.register(id: Hotkey.stackID, keyCode: stackHotkey.keyCode, modifiers: stackHotkey.modifiers, label: stackHotkey.label) }
+    var agendaHotkey: AgendaHotkeyChoice { didSet { d.set(agendaHotkey.rawValue, forKey: "agendaHotkey"); registerAgendaHotkey() } }
+    func registerAgendaHotkey() { Hotkey.shared.register(id: Hotkey.agendaID, keyCode: agendaHotkey.keyCode, modifiers: agendaHotkey.modifiers, label: agendaHotkey.label) }
     /// Off: a capture goes straight to the category last used for that app, with no questions.
     var askEveryTime: Bool { didSet { d.set(askEveryTime, forKey: "askEveryTime") } }
 
@@ -63,7 +72,7 @@ final class Prefs {
     private(set) var launchAtLoginError: String?
 
     private init() {
-        d.register(defaults: ["notify": true, "refreshSeconds": 5, "showDockIcon": true, "autoCheckUpdates": true, "askEveryTime": true, "hotkey": "optCmdN", "stackHotkey": "optCmdK"])
+        d.register(defaults: ["notify": true, "refreshSeconds": 5, "showDockIcon": true, "autoCheckUpdates": true, "askEveryTime": true, "hotkey": "optCmdN", "stackHotkey": "optCmdK", "agendaHotkey": "optCmdA"])
         theme = ThemeChoice(rawValue: d.string(forKey: "theme") ?? "") ?? .system
         showDockIcon = d.bool(forKey: "showDockIcon")
         notify = d.bool(forKey: "notify")
@@ -71,6 +80,7 @@ final class Prefs {
         sidebarCollapsed = d.bool(forKey: "sidebarCollapsed")
         hotkey = HotkeyChoice(rawValue: d.string(forKey: "hotkey") ?? "") ?? .optCmdN
         stackHotkey = StackHotkeyChoice(rawValue: d.string(forKey: "stackHotkey") ?? "") ?? .optCmdK
+        agendaHotkey = AgendaHotkeyChoice(rawValue: d.string(forKey: "agendaHotkey") ?? "") ?? .optCmdA
         askEveryTime = d.bool(forKey: "askEveryTime")
         autoCheckUpdates = d.bool(forKey: "autoCheckUpdates")
         updateChannel = UpdateChannel(rawValue: d.string(forKey: "updateChannel") ?? "") ?? .releases

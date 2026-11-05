@@ -72,6 +72,32 @@ final class KitTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: s.attachmentURL(saved.attachments[0]).path))
     }
 
+    func testRemindersRoundTripAndTimeSuggestions() throws {
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
+        let now = cal.date(from: DateComponents(year: 2026, month: 11, day: 5, hour: 11, minute: 4))!   // a Thursday
+        func s(_ t: String, busy: [Date] = []) -> ReminderTime.Suggestion { ReminderTime.suggest(now: now, text: t, busy: busy, calendar: cal) }
+        func parts(_ d: Date) -> [Int] { let c = cal.dateComponents([.day, .hour, .minute], from: d); return [c.day!, c.hour!, c.minute!] }
+        XCTAssertEqual(parts(s("Ship it tomorrow").pick), [6, 9, 0])
+        XCTAssertEqual(parts(s("call at 3pm").pick), [5, 15, 0])
+        XCTAssertEqual(parts(s("call at 9am").pick), [6, 9, 0])            // already past: tomorrow
+        XCTAssertEqual(parts(s("confirm before Friday").pick), [5, 16, 0])  // the day before, afternoon
+        XCTAssertEqual(parts(s("review on monday").pick), [9, 9, 0])
+        XCTAssertEqual(parts(s("in 2 hours").pick), [5, 13, 4])
+        XCTAssertEqual(parts(s("something with no time").pick), [5, 12, 30])
+        let busy = [cal.date(from: DateComponents(year: 2026, month: 11, day: 5, hour: 12, minute: 30))!]
+        XCTAssertEqual(parts(s("no time", busy: busy).pick), [5, 13, 0])   // steps past a busy half hour
+        XCTAssertFalse(s("Ship it tomorrow").options.contains { $0.label == "Tomorrow morning" })   // never repeats the pick
+        XCTAssertEqual(ReminderTime.label(s("tomorrow").pick, now: now, calendar: cal), "Tomorrow 09:00")
+
+        let due = cal.date(from: DateComponents(year: 2026, month: 11, day: 9, hour: 9, minute: 30))!
+        var it = Item(title: "Plan", path: ["Work"]); it.reminders = [Reminder(id: "r1", text: "collect feedback", due: due, kind: .event, nudge: true, eventID: "E1")]
+        let back = try XCTUnwrap(ItemFile.decode(ItemFile.encode(it)))
+        XCTAssertEqual(back.reminders, it.reminders)
+
+        let entries = [AgendaEntry(id: "a", date: cal.date(byAdding: .hour, value: 4, to: now)!, title: "Ship it", kind: .reminder)]
+        XCTAssertTrue(AgendaSummary.text(entries: entries, now: now, calendar: cal).contains("Next up: Ship it"))
+    }
+
     func testDeeplinksAndReferences() throws {
         let it = Item(id: "ABC-123", title: "T", quote: "q", sourceApp: "Notes", attachments: ["a.png"], path: ["Projects", "MLX Player"])
         XCTAssertEqual(it.deepLink, "noty://item/ABC-123")

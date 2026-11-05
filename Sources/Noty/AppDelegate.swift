@@ -3,6 +3,7 @@
 import SwiftUI
 import AppKit
 import NotyKit
+import UserNotifications
 
 /// Owns the menu bar item (with its popover arrow), the Dock presence, and the Manager window.
 /// The popover's views and the window are created on demand and destroyed on close, so a closed UI holds no view memory.
@@ -13,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     private let popover = NSPopover()
     private var managerWindow: NSWindow?
     private let model = AppModel.shared
+    private let notificationDelegate = NotificationDelegate()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if SnapshotMode.dir != nil { SnapshotMode.run(); return }
@@ -36,6 +38,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         Hotkey.shared.register(Prefs.shared.hotkey)
         Hotkey.shared.handlers[Hotkey.stackID] = { StackController.shared.toggle() }
         Prefs.shared.registerStackHotkey()
+        Hotkey.shared.handlers[Hotkey.agendaID] = { AgendaController.shared.toggle() }
+        Prefs.shared.registerAgendaHotkey()
+        if Bundle.main.bundleIdentifier != nil { UNUserNotificationCenter.current().delegate = notificationDelegate }
         NSApp.servicesProvider = ServicesProvider()
         NSUpdateDynamicServices()
         Task { await model.refresh() }
@@ -57,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
             let m = NSMenu()
             m.addItem(withTitle: "Open Noty", action: #selector(openManager), keyEquivalent: "").target = self
             m.addItem(withTitle: "Capture selection  \(Prefs.shared.hotkey.label)", action: #selector(captureSelection), keyEquivalent: "").target = self
+            m.addItem(withTitle: "Open Agenda  \(Prefs.shared.agendaHotkey.label)", action: #selector(openAgenda), keyEquivalent: "").target = self
             m.addItem(withTitle: "Open Stack  \(Prefs.shared.stackHotkey.label)", action: #selector(openStack), keyEquivalent: "").target = self
             m.addItem(withTitle: "Capture screen area", action: #selector(snipScreen), keyEquivalent: "").target = self
             m.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
@@ -142,6 +148,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
             }
         }
     }
+
+    @objc func openAgenda() { AgendaController.shared.toggle() }
 
     @objc func openStack() { StackController.shared.toggle() }
 

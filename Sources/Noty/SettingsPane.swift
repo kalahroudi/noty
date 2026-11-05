@@ -42,6 +42,7 @@ struct SettingsPane: View {
                 SettingsGroup("Capture") {
                     SettingRow("Capture shortcut", "Works in every app. Select text, then press it.") { Segmented(options: HotkeyChoice.allCases.map { ($0, $0.label) }, selection: $p.hotkey) }
                     SettingRow("Stack shortcut", "Opens the Stack: your open tasks one at a time, with the arrow keys.") { Segmented(options: StackHotkeyChoice.allCases.map { ($0, $0.label) }, selection: $p.stackHotkey) }
+                    SettingRow("Agenda shortcut", "Opens today, tomorrow and the week: your reminders and calendar, with a short summary.") { Segmented(options: AgendaHotkeyChoice.allCases.map { ($0, $0.label) }, selection: $p.agendaHotkey) }
                     SettingRow("Ask where every time", "Off: a capture goes straight to the category last used for that app, with no questions.") { Toggle("", isOn: $p.askEveryTime).labelsHidden().toggleStyle(.switch).tint(Theme.accent) }
                     SettingRow("Accessibility access", "Lets Noty read the text you selected in other apps. Without it you can still use right-click → Services → Add to Noty.") {
                         if SelectionReader.trusted { Badge(text: "allowed", kind: .ok) }

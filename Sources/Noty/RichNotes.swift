@@ -7,12 +7,14 @@ import AppKit
 /// `**bold**`, `*italic*`, `~~strike~~`, `<u>underline</u>`, `<span style="color:#RRGGBB">`, `<span style="font-size:Npx">`.
 enum NotesMarkdown {
     static let baseSize: CGFloat = 13
+    /// Highlighter yellow, the same as the marker line on highlighted text everywhere else in Noty.
+    static let highlightColor = NSColor(srgbRed: 0.96, green: 0.77, blue: 0.09, alpha: 0.42)
 
     // MARK: Markdown → attributed text
 
     static func attributed(_ md: String, size: CGFloat = baseSize) -> NSAttributedString {
         let out = NSMutableAttributedString()
-        var bold = false, italic = false, strike = false, under = false
+        var bold = false, italic = false, strike = false, under = false, mark = false
         var colors: [NSColor] = [], sizes: [CGFloat] = []
         var spans: [Character] = []   // which kind each open <span> was: "c" color, "s" size
         let chars = Array(md); var i = 0; var buf = ""
@@ -25,6 +27,7 @@ enum NotesMarkdown {
             var a: [NSAttributedString.Key: Any] = [.font: NSFont(descriptor: desc, size: sizes.last ?? size) ?? base, .foregroundColor: colors.last ?? NSColor.labelColor]
             if strike { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             if under { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            if mark { a[.backgroundColor] = highlightColor }
             out.append(NSAttributedString(string: buf, attributes: a)); buf = ""
         }
         func starts(_ s: String) -> Bool { i + s.count <= chars.count && String(chars[i..<(i + s.count)]) == s }
@@ -34,6 +37,8 @@ enum NotesMarkdown {
             if starts("**") { flush(); bold.toggle(); i += 2; continue }
             if chars[i] == "*", !(atLineStart && i + 1 < chars.count && chars[i + 1] == " ") { flush(); italic.toggle(); i += 1; continue }
             if starts("~~") { flush(); strike.toggle(); i += 2; continue }
+            if starts("<mark>") { flush(); mark = true; i += 6; continue }
+            if starts("</mark>") { flush(); mark = false; i += 7; continue }
             if starts("<u>") { flush(); under = true; i += 3; continue }
             if starts("</u>") { flush(); under = false; i += 4; continue }
             if starts("</span>") { flush(); if let k = spans.popLast() { if k == "c" { _ = colors.popLast() } else { _ = sizes.popLast() } }; i += 7; continue }
@@ -62,6 +67,7 @@ enum NotesMarkdown {
             let font = attrs[.font] as? NSFont
             let traits = font?.fontDescriptor.symbolicTraits ?? []
             let isBold = traits.contains(.bold), isItalic = traits.contains(.italic)
+            let isMark = attrs[.backgroundColor] != nil
             let isStrike = (attrs[.strikethroughStyle] as? Int ?? 0) != 0, isUnder = (attrs[.underlineStyle] as? Int ?? 0) != 0
             let px = Int((font?.pointSize ?? size).rounded())
             let color = (attrs[.foregroundColor] as? NSColor).flatMap(hex)
@@ -73,7 +79,7 @@ enum NotesMarkdown {
                 if core.isEmpty { md += line; continue }
                 let lead = String(line.prefix { $0 == " " || $0 == "\t" }), trail = String(line.reversed().prefix { $0 == " " || $0 == "\t" }.reversed())
                 var t = escape(core)
-                if isBold { t = "**\(t)**" }; if isItalic { t = "*\(t)*" }; if isStrike { t = "~~\(t)~~" }; if isUnder { t = "<u>\(t)</u>" }
+                if isBold { t = "**\(t)**" }; if isItalic { t = "*\(t)*" }; if isStrike { t = "~~\(t)~~" }; if isUnder { t = "<u>\(t)</u>" }; if isMark { t = "<mark>\(t)</mark>" }
                 if px != Int(size) { t = "<span style=\"font-size:\(px)px\">\(t)</span>" }
                 if let c = color, c != hex(.labelColor) { t = "<span style=\"color:#\(c)\">\(t)</span>" }
                 md += lead + t + trail
@@ -120,6 +126,21 @@ final class NotesTextView: NSTextView {
         didChangeText()
     }
 
+    /// Marks the selection with the highlighter, or clears it when the whole selection is already marked.
+    func setHighlight(_ on: Bool, range: NSRange? = nil) {
+        let r = range ?? selectedRange()
+        guard r.length > 0, shouldChangeText(in: r, replacementString: nil) else { return }
+        if on { textStorage?.addAttribute(.backgroundColor, value: NotesMarkdown.highlightColor, range: r) } else { textStorage?.removeAttribute(.backgroundColor, range: r) }
+        didChangeText()
+    }
+
+    func isHighlighted(_ r: NSRange) -> Bool {
+        guard r.length > 0, let ts = textStorage else { return false }
+        var all = true
+        ts.enumerateAttribute(.backgroundColor, in: r) { v, _, stop in if v == nil { all = false; stop.pointee = true } }
+        return all
+    }
+
     func setColor(_ color: NSColor?) {
         let r = selectedRange(); let c = color ?? NSColor.labelColor
         if r.length == 0 { typingAttributes[.foregroundColor] = c; return }
@@ -150,6 +171,7 @@ struct RichNotesEditor: NSViewRepresentable {
     @Binding var markdown: String
     @Binding var contentHeight: CGFloat
     let handle: NotesEditorHandle
+    var itemID: String?
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NotesTextView.scrollableTextView()
@@ -191,6 +213,21 @@ struct RichNotesEditor: NSViewRepresentable {
             measure()
         }
         /// The height the whole text needs at the current width, so the box can grow with it.
+        private var pending: DispatchWorkItem?
+        /// Selecting words offers Highlight, Remind me, Schedule and Ask AI once the selection has settled.
+        func textViewDidChangeSelection(_ n: Notification) {
+            guard let tv = n.object as? NotesTextView, let id = parent.itemID else { return }
+            pending?.cancel()
+            let r = tv.selectedRange()
+            if r.length < 2 { SelectionPopover.shared.close(); return }
+            let work = DispatchWorkItem { [weak tv] in
+                guard let tv, tv.window?.firstResponder === tv, tv.selectedRange() == r else { return }
+                SelectionPopover.shared.show(textView: tv, itemID: id)
+            }
+            pending = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
+        }
+
         @objc func measure() {
             guard let tv = textView, let lm = tv.layoutManager, let tc = tv.textContainer else { return }
             lm.ensureLayout(for: tc)
@@ -205,6 +242,8 @@ struct NotesEditor: View {
     @Binding var markdown: String
     /// The box starts this tall and grows with the text, so long notes are never hidden behind a scroll.
     var minHeight: CGFloat = 110
+    /// The item the notes belong to. With it, selecting words offers reminders.
+    var itemID: String?
     @State private var contentHeight: CGFloat = 0
     @State private var handle = NotesEditorHandle()
     private static let colors: [(String, UInt32)] = [("Red", 0xD64545), ("Orange", 0xD9822B), ("Green", 0x2E9E5B), ("Blue", 0x2F6FED), ("Purple", 0x8A5CD6)]
@@ -216,6 +255,7 @@ struct NotesEditor: View {
                 tool("italic", "Italic") { handle.view?.toggle(.italic) }
                 tool("underline", "Underline") { handle.view?.toggleAttribute(.underlineStyle) }
                 tool("strikethrough", "Strikethrough") { handle.view?.toggleAttribute(.strikethroughStyle) }
+                tool("highlighter", "Highlight") { if let tv = handle.view { tv.setHighlight(!tv.isHighlighted(tv.selectedRange())) } }
                 Divider().frame(height: 14).padding(.horizontal, 3)
                 Menu {
                     Button("Small") { handle.view?.setSize(11) }
@@ -233,7 +273,7 @@ struct NotesEditor: View {
                 Spacer()
             }.padding(.horizontal, 6).padding(.vertical, 4)
             Divider()
-            RichNotesEditor(markdown: $markdown, contentHeight: $contentHeight, handle: handle).frame(height: max(minHeight, contentHeight)).padding(.horizontal, 4)
+            RichNotesEditor(markdown: $markdown, contentHeight: $contentHeight, handle: handle, itemID: itemID).frame(height: max(minHeight, contentHeight)).padding(.horizontal, 4)
         }
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 9))
         .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.hairline))

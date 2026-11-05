@@ -28,15 +28,17 @@ public struct Item: Identifiable, Equatable, Sendable {
     public var attachments: [String]
     /// Workspace first, then categories: ["Work", "Q4 Launch", "Research"]. Mirrors the folders.
     public var path: [String]
+    /// Reminders and calendar events made from highlighted words.
+    public var reminders: [Reminder]
     /// Where the file lives right now. Nil until saved.
     public var file: URL?
 
     public init(id: String = UUID().uuidString, title: String, kind: ItemKind = .task, done: Bool = false, today: Bool = false,
                 tags: [String] = [], quote: String = "", notes: String = "", sourceApp: String? = nil, sourceTitle: String? = nil,
-                sourceURL: String? = nil, created: Date = Date(), attachments: [String] = [], path: [String] = [NotyStore.inbox], file: URL? = nil) {
+                sourceURL: String? = nil, created: Date = Date(), attachments: [String] = [], path: [String] = [NotyStore.inbox], reminders: [Reminder] = [], file: URL? = nil) {
         self.id = id; self.title = title; self.kind = kind; self.done = done; self.today = today; self.tags = tags
         self.quote = quote; self.notes = notes; self.sourceApp = sourceApp; self.sourceTitle = sourceTitle; self.sourceURL = sourceURL
-        self.created = created; self.attachments = attachments; self.path = path; self.file = file
+        self.created = created; self.attachments = attachments; self.path = path; self.reminders = reminders; self.file = file
     }
 
     /// A short title taken from the first line of a highlighted passage.
@@ -71,6 +73,14 @@ public enum ItemFile {
         var h = ["---", "id: \(j(item.id))", "title: \(j(item.title))", "kind: \(j(item.kind.rawValue))", "done: \(item.done)", "today: \(item.today)",
                  "tags: \(j(item.tags))", "created: \(j(iso.string(from: item.created)))"]
         if !item.attachments.isEmpty { h.append("attachments: \(j(item.attachments))") }
+        if !item.reminders.isEmpty {
+            let list = item.reminders.map { r -> [String: Any] in
+                var d: [String: Any] = ["id": r.id, "text": r.text, "due": iso.string(from: r.due), "kind": r.kind.rawValue, "nudge": r.nudge, "done": r.done]
+                if let e = r.eventID { d["event"] = e }
+                return d
+            }
+            h.append("reminders: \(j(list))")
+        }
         if let v = item.sourceApp { h.append("source_app: \(j(v))") }
         if let v = item.sourceTitle { h.append("source_title: \(j(v))") }
         if let v = item.sourceURL { h.append("source_url: \(j(v))") }
@@ -107,7 +117,11 @@ public enum ItemFile {
                     done: f["done"] as? Bool ?? false, today: f["today"] as? Bool ?? false, tags: f["tags"] as? [String] ?? [],
                     quote: quote.joined(separator: "\n"), notes: notes, sourceApp: f["source_app"] as? String,
                     sourceTitle: f["source_title"] as? String, sourceURL: f["source_url"] as? String,
-                    created: (f["created"] as? String).flatMap { iso.date(from: $0) } ?? Date(), attachments: f["attachments"] as? [String] ?? [])
+                    created: (f["created"] as? String).flatMap { iso.date(from: $0) } ?? Date(), attachments: f["attachments"] as? [String] ?? [],
+                    reminders: (f["reminders"] as? [[String: Any]] ?? []).compactMap { d in
+                        guard let id = d["id"] as? String, let text = d["text"] as? String, let due = (d["due"] as? String).flatMap({ iso.date(from: $0) }) else { return nil }
+                        return Reminder(id: id, text: text, due: due, kind: Reminder.Kind(rawValue: d["kind"] as? String ?? "") ?? .reminder, nudge: d["nudge"] as? Bool ?? false, done: d["done"] as? Bool ?? false, eventID: d["event"] as? String)
+                    })
     }
 
     nonisolated(unsafe) private static let iso: ISO8601DateFormatter = ISO8601DateFormatter()

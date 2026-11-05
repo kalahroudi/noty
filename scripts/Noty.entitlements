@@ -4,5 +4,6 @@
 <dict>
   <!-- Not sandboxed: the app runs command line tools and replaces its own bundle when updating. -->
   <key>com.apple.security.automation.apple-events</key><true/>
+  <key>com.apple.security.personal-information.calendars</key><true/>
 </dict>
 </plist>

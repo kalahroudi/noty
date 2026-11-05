@@ -45,6 +45,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSHighResolutionCapable</key><true/>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSAppleEventsUsageDescription</key><string>Noty opens Terminal to run your agent (for example Claude Code) on the items you choose.</string>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>Noty shows your calendar events next to your reminders in the Agenda, avoids them when suggesting a time, and adds events you schedule.</string>
   <key>CFBundleURLTypes</key>
   <array><dict>
     <key>CFBundleURLName</key><string>com.kalahroudi.noty.link</string>

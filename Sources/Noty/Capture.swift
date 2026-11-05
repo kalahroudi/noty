@@ -25,7 +25,7 @@ struct Captured {
 @MainActor
 final class Hotkey {
     static let shared = Hotkey()
-    static let captureID: UInt32 = 1, stackID: UInt32 = 2
+    static let captureID: UInt32 = 1, stackID: UInt32 = 2, agendaID: UInt32 = 3
     private var refs: [UInt32: EventHotKeyRef] = [:]
     private var handler: EventHandlerRef?
     var handlers: [UInt32: () -> Void] = [:]

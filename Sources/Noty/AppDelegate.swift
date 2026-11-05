@@ -114,6 +114,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     }
 
     // The app lives in the menu bar: closing the last window must not quit it.
+    /// noty://item/<id> and noty://category/<path> open the manager on that item or category.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            guard let link = Deeplink.parse(url) else { continue }
+            showManager(pane: .library)
+            Task { @MainActor in
+                let lib = LibraryModel.shared
+                await lib.reloadIfChanged(force: true)
+                switch link {
+                case .item(let raw):
+                    guard let it = lib.items.first(where: { $0.id == raw || ($0.id.hasPrefix(raw) && raw.count >= 6) }) else {
+                        AppModel.shared.show("That item isn't in this library any more.", error: true); return }
+                    lib.scope = it.done ? .done : (it.path.first == NotyStore.inbox ? .inbox : .category(it.path))
+                    for n in 1..<max(it.path.count, 1) { lib.expanded.insert(it.path.prefix(n).joined(separator: "/")) }
+                    lib.selectedID = it.id
+                case .category(let p):
+                    guard lib.categories.contains(CategoryNode(path: p)) else { AppModel.shared.show("That category doesn't exist here.", error: true); return }
+                    lib.scope = .category(p); lib.selectedID = nil
+                    for n in 1..<max(p.count, 1) { lib.expanded.insert(p.prefix(n).joined(separator: "/")) }
+                }
+            }
+        }
+    }
+
     @objc func captureSelection() { CaptureController.shared.captureSelection() }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

@@ -122,6 +122,7 @@ struct ItemRow: View {
         .overlay(RoundedRectangle(cornerRadius: 9).stroke(on ? Theme.hairline : .clear))
         .contentShape(RoundedRectangle(cornerRadius: 9))
         .onHover { hover = $0 }
+        .contextMenu { copyMenu(item); Divider(); Button(item.done ? "Mark as not done" : "Mark as done") { lib.toggleDone(item.id) } }
     }
 }
 
@@ -151,6 +152,11 @@ struct InspectorView: View {
                     Spacer()
                     Toggle("Done", isOn: $draft.done).toggleStyle(.checkbox)
                 }.font(.system(size: 12.5))
+                HStack(spacing: 6) {
+                    Button { copyText(item.deepLink, "Link copied. Paste it anywhere to open this item in Noty.") } label: { Label("Copy link", systemImage: "link") }.buttonStyle(Pill())
+                    Button { copyText(item.agentReference(store: lib.store), "Copied for your agent. It includes the id the Noty tools understand.") } label: { Label("For agent", systemImage: "sparkles") }.buttonStyle(Pill())
+                    Menu { copyMenu(item) } label: { Image(systemName: "ellipsis") }.menuStyle(.button).menuIndicator(.hidden).fixedSize()
+                }.font(.system(size: 12))
 
                 label("Category")
                 Menu {
@@ -224,6 +230,22 @@ struct InspectorView: View {
         if draft != item, lib.item(item.id) != nil { lib.update(draft) }
     }
 }
+
+/// Copy formats for an item, shared by the inspector and the row's context menu.
+@MainActor func copyMenu(_ item: Item) -> some View {
+    let store = LibraryModel.shared.store
+    return Group {
+        Button { copyText(item.deepLink, "Link copied. Paste it anywhere to open this item in Noty.") } label: { Label("Copy link", systemImage: "link") }
+        Button { copyText(item.agentReference(store: store), "Copied for your agent. It includes the id the Noty tools understand.") } label: { Label("Copy for agent", systemImage: "sparkles") }
+        Button { copyText(item.markdown(store: store), "Markdown copied.") } label: { Label("Copy as Markdown", systemImage: "doc.text") }
+        Divider()
+        Button { copyText(item.title, "Title copied.") } label: { Label("Copy title", systemImage: "textformat") }
+        if !item.quote.isEmpty { Button { copyText(item.quote, "Highlighted text copied.") } label: { Label("Copy highlighted text", systemImage: "highlighter") } }
+        if !item.notes.isEmpty { Button { copyText(item.notes, "Notes copied.") } label: { Label("Copy notes", systemImage: "note.text") } }
+    }
+}
+
+@MainActor func copyText(_ text: String, _ message: String) { Clipboard.copy(text); AppModel.shared.show(message) }
 
 /// Lets an inspector button pick the agent action the sheet opens with.
 @MainActor final class AgentSheetPreset { static let shared = AgentSheetPreset(); var action: AgentAction? }

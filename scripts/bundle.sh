@@ -45,6 +45,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSHighResolutionCapable</key><true/>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSAppleEventsUsageDescription</key><string>Noty opens Terminal to run your agent (for example Claude Code) on the items you choose.</string>
+  <key>CFBundleURLTypes</key>
+  <array><dict>
+    <key>CFBundleURLName</key><string>com.kalahroudi.noty.link</string>
+    <key>CFBundleURLSchemes</key><array><string>noty</string></array>
+  </dict></array>
   <key>NSServices</key>
   <array>
     <dict>

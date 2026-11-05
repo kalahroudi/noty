@@ -70,6 +70,37 @@ final class KitTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: s.attachmentURL(saved.attachments[0]).path))
     }
 
+    func testDeeplinksAndReferences() throws {
+        let it = Item(id: "ABC-123", title: "T", quote: "q", sourceApp: "Notes", attachments: ["a.png"], path: ["Projects", "MLX Player"])
+        XCTAssertEqual(it.deepLink, "noty://item/ABC-123")
+        XCTAssertEqual(Deeplink.parse(URL(string: it.deepLink)!), .item("ABC-123"))
+        XCTAssertEqual(Deeplink.itemID(from: "noty://item/ABC-123"), "ABC-123")
+        let cat = Deeplink.url(category: ["Projects", "MLX Player"])
+        XCTAssertEqual(Deeplink.parse(URL(string: cat)!), .category(["Projects", "MLX Player"]))
+        let ref = it.agentReference()
+        XCTAssertTrue(ref.contains("noty://item/ABC-123")); XCTAssertTrue(ref.contains("get_item")); XCTAssertTrue(ref.contains("> q")); XCTAssertTrue(ref.contains("a.png"))
+        XCTAssertTrue(ListReference.text(title: "P", link: nil, items: [it]).contains("id ABC-123"))
+    }
+
+    /// Notes and other apps put pictures inside RTFD (flat or classic) rather than as image data.
+    func testClipboardImagesFromRichTextAndImageData() throws {
+        let img = NSImage(size: NSSize(width: 40, height: 30)); img.lockFocus(); NSColor.red.setFill(); NSRect(x: 0, y: 0, width: 40, height: 30).fill(); img.unlockFocus()
+        let png = NSBitmapImageRep(data: img.tiffRepresentation!)!.representation(using: .png, properties: [:])!
+        let wrapper = FileWrapper(regularFileWithContents: png); wrapper.preferredFilename = "pic.png"
+        let body = NSMutableAttributedString(string: "Error when a user loads a model\n"); body.append(NSAttributedString(attachment: NSTextAttachment(fileWrapper: wrapper)))
+        let rtfd = try XCTUnwrap(body.rtfd(from: NSRange(location: 0, length: body.length)))
+        for type in [NSPasteboard.PasteboardType("com.apple.flat-rtfd"), .rtfd] {
+            let pb = NSPasteboard(name: NSPasteboard.Name("noty-test-\(UUID().uuidString)"))
+            pb.clearContents(); pb.setString(body.string, forType: .string); pb.setData(rtfd, forType: type)
+            let r = ClipboardContent.extract(from: pb)
+            XCTAssertEqual(r.images.count, 1, "\(type.rawValue)"); XCTAssertEqual(r.text, "Error when a user loads a model")
+        }
+        let pb = NSPasteboard(name: NSPasteboard.Name("noty-test-\(UUID().uuidString)")); pb.clearContents(); pb.setData(png, forType: .png)
+        XCTAssertEqual(ClipboardContent.extract(from: pb).images.count, 1)
+        let html = "<p>x</p><img src=\"data:image/png;base64,\(png.base64EncodedString())\">"
+        XCTAssertEqual(ClipboardContent.dataImages(in: html).count, 1)
+    }
+
     func testDecodeRejectsFilesWithoutHeader() {
         XCTAssertNil(ItemFile.decode("# just a note\n"))
         XCTAssertNil(ItemFile.decode("---\ntitle: \"x\"\n---\n"))

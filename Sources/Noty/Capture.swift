@@ -62,7 +62,8 @@ enum SelectionReader {
         let copied = await copyFallback()
         c.images = copied.images
         let ax = axSelectedText() ?? ""
-        c.text = ax.isEmpty ? copied.text : ax
+        let axClean = ax.replacingOccurrences(of: "\u{FFFC}", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        c.text = copied.text.isEmpty ? axClean : copied.text
         return c
     }
 
@@ -90,8 +91,10 @@ enum SelectionReader {
     @MainActor private static func copyFallback() async -> (text: String, images: [Data]) {
         let pb = NSPasteboard.general
         let saved: [[(NSPasteboard.PasteboardType, Data)]] = (pb.pasteboardItems ?? []).map { item in item.types.compactMap { t in item.data(forType: t).map { (t, $0) } } }
+        // The shortcut's own keys (⌥⌘ or ⌃⌥) are usually still held. Wait for them to come up, or the app would see ⌥⌘C instead of ⌘C.
+        for _ in 0..<30 where !NSEvent.modifierFlags.intersection([.option, .control, .shift]).isEmpty { try? await Task.sleep(for: .milliseconds(30)) }
         let before = pb.changeCount
-        let src = CGEventSource(stateID: .combinedSessionState)
+        let src = CGEventSource(stateID: .privateState)
         for down in [true, false] {
             let e = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(kVK_ANSI_C), keyDown: down)
             e?.flags = .maskCommand; e?.post(tap: .cghidEventTap)
@@ -112,23 +115,10 @@ enum SelectionReader {
         return result
     }
 
-    /// Text without attachment placeholder characters, and every picture on the pasteboard as PNG (direct images, and pictures inside rich text).
     static func extract(from pb: NSPasteboard) -> (text: String, images: [Data]) {
-        var png: [Data] = []
-        func add(_ data: Data?) {
-            guard let data, data.count < 20_000_000, png.count < 6, let rep = NSBitmapImageRep(data: data), let out = rep.representation(using: .png, properties: [:]),
-                  !png.contains(out) else { return }
-            png.append(out)
-        }
-        add(pb.data(forType: .png)); add(pb.data(forType: .tiff))
-        if png.isEmpty, let rtfd = pb.data(forType: .rtfd), let str = try? NSAttributedString(data: rtfd, options: [.documentType: NSAttributedString.DocumentType.rtfd], documentAttributes: nil) {
-            str.enumerateAttribute(.attachment, in: NSRange(location: 0, length: str.length)) { v, _, _ in
-                guard let att = v as? NSTextAttachment else { return }
-                if let d = att.fileWrapper?.regularFileContents { add(d) } else if let img = att.image { add(img.tiffRepresentation) }
-            }
-        }
-        let text = (pb.string(forType: .string) ?? "").replacingOccurrences(of: "\u{FFFC}", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return (text, png)
+        let r = ClipboardContent.extract(from: pb)
+        AppLog.info("Capture clipboard: \(r.images.count) image(s), \(r.text.count) chars, types \(r.types.prefix(14).joined(separator: ", "))")
+        return (r.text, r.images)
     }
 }
 

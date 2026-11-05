@@ -192,6 +192,12 @@ struct TreeRow: View {
             Button("New category inside “\(c.name)”…") { newCategory = NewCategoryRequest(parent: c.path) }
             Button("Rename…") { newCategory = NewCategoryRequest(parent: Array(c.path.dropLast()), rename: c.path) }
             Divider()
+            Button("Copy link to “\(c.name)”") { copyText(Deeplink.url(category: c.path), "Link copied. Paste it anywhere to open this category in Noty.") }
+            Button("Copy list for agent") {
+                let items = lib.items.filter { $0.path.starts(with: c.path) && !$0.done }
+                copyText(ListReference.text(title: c.path.joined(separator: "/"), link: Deeplink.url(category: c.path), items: items), "Copied \(items.count) item\(items.count == 1 ? "" : "s") for your agent.")
+            }
+            Divider()
             Button("Delete “\(c.name)”", role: .destructive) { lib.deleteCategory(c.path) }
         }
     }

@@ -48,7 +48,8 @@ private func store() throws -> NotyStore {
     return s
 }
 
-private func find(_ s: NotyStore, _ id: String) throws -> Item {
+private func find(_ s: NotyStore, _ rawID: String) throws -> Item {
+    let id = Deeplink.itemID(from: rawID.trimmingCharacters(in: .whitespacesAndNewlines))
     guard let it = s.load().items.first(where: { $0.id == id || $0.id.hasPrefix(id) && id.count >= 6 }) else { throw ToolError(message: "No item with id \(id). Use list_items or search to find ids.") }
     return it
 }
@@ -118,7 +119,7 @@ let allTools: [Tool] = {
     })
 
     t.append(Tool(name: "get_item", description: "Everything about one item: highlighted text, notes, source app/title/URL, tags, category and image_files (absolute paths of images captured with it, which you can open and look at).",
-                  properties: ["id": prop("string", "Item id (a prefix of at least 6 characters also works).")], required: ["id"], readOnly: true) { a in
+                  properties: ["id": prop("string", "Item id, a prefix of at least 6 characters, or a noty://item/… link.")], required: ["id"], readOnly: true) { a in
         let s = try store(); return try text(dict(try find(s, try requireString(a, "id")), store: s))
     })
 

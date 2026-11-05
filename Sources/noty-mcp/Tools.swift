@@ -45,6 +45,10 @@ private func requireString(_ a: Args, _ key: String) throws -> String {
 private func store() throws -> NotyStore {
     let s = NotyStore(root: NotyStore.resolveRoot())
     do { try s.prepare() } catch { throw ToolError(message: "Noty's library folder could not be opened. Open the Noty app once and check Settings → Sync.") }
+    // An empty listing and an unreadable folder look the same to load(), so say which one it is.
+    if (try? FileManager.default.contentsOfDirectory(atPath: s.root.path)) == nil {
+        throw ToolError(message: "macOS blocks this process from reading the Noty library at \(s.root.path) (Privacy & Security → Files & Folders, or Full Disk Access, for the app running your agent). Allow it there, or move the library in Noty → Settings → Sync to a folder outside Documents, Desktop and Downloads.")
+    }
     return s
 }
 

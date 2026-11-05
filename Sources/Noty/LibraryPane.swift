@@ -12,6 +12,7 @@ struct LibraryPane: View {
     @State private var request: AgentRequest?
     @State private var quickTitle = ""
     @State private var detail: DetailRequest?
+    @State private var dropping = false
 
     var body: some View {
         if lib.scope == .agent { AgentResultsPane() } else { itemsPane }
@@ -33,6 +34,8 @@ struct LibraryPane: View {
                 if !lib.loaded { SkeletonList(rows: 7).frame(maxHeight: .infinity, alignment: .top).padding(.top, 20) }
                 else { list(items) }
             }
+            .onDrop(of: [.fileURL], isTargeted: $dropping) { lib.createTask(fromDrop: $0) }
+            .overlay { if dropping { dropHint } }
             if let it = lib.item(lib.selectedID) {
                 Divider()
                 InspectorView(item: it, ask: { request = AgentRequest(items: [$0]) }, expand: { detail = DetailRequest(id: it.id) }).id(it.id).frame(width: 360)
@@ -44,6 +47,16 @@ struct LibraryPane: View {
             if let id, let it = lib.item(id) { request = AgentRequest(items: [it]); lib.selectedID = id }
             lib.askAgentFor = nil
         }
+    }
+
+    private var dropHint: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "square.and.arrow.down").font(.system(size: 26))
+            Text("Drop to create a task").font(.system(size: 14, weight: .semibold))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity).background(.regularMaterial)
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.highlight, style: StrokeStyle(lineWidth: 2, dash: [6])).padding(8))
+        .allowsHitTesting(false)
     }
 
     private func subtitle(_ n: Int) -> String {

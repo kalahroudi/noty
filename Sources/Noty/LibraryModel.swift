@@ -141,6 +141,28 @@ final class LibraryModel {
         else { attach(data, ext: ext, to: id) }
     }
 
+    /// Files dropped on the list or the menu bar popover become one new task with every file attached.
+    func createTask(fromDrop providers: [NSItemProvider]) -> Bool {
+        let found = providers.filter { $0.canLoadObject(ofClass: URL.self) }
+        guard !found.isEmpty else { return false }
+        Task { @MainActor in
+            var urls: [URL] = []
+            for p in found {
+                let url: URL? = await withCheckedContinuation { c in _ = p.loadObject(ofClass: URL.self) { u, _ in c.resume(returning: u) } }
+                if let url, url.isFileURL { urls.append(url) }
+            }
+            guard let first = urls.first else { return }
+            var path = [NotyStore.inbox]
+            if case .category(let p) = scope { path = p }
+            let title = urls.count == 1 ? first.lastPathComponent : "\(first.lastPathComponent) and \(urls.count - 1) more"
+            guard let task = add(Item(title: title, today: scope == .today, path: path)) else { return }
+            for u in urls { attach(fileAt: u, to: task.id) }
+            selectedID = task.id
+            AppModel.shared.show(urls.count == 1 ? "Task created from \(first.lastPathComponent)." : "Task created with \(urls.count) files.")
+        }
+        return true
+    }
+
     func removeAttachment(_ name: String, from id: String) {
         guard var it = item(id) else { return }
         it.attachments.removeAll { $0 == name }

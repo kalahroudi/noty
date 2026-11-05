@@ -66,7 +66,7 @@ public extension Item {
 
     /// Everything an agent needs in one paste: the link, the id to use with the Noty tools, the text, notes, source and image files.
     func agentReference(store: NotyStore? = nil) -> String {
-        var l = ["Noty item: \(title)", "Link: \(deepLink)", "Id: \(id)  (read it with the noty MCP tool get_item)", "Category: \(path.joined(separator: "/"))",
+        var l = ["Noty item: \(title)", "Link: \(deepLink)", "Id: \(id)  (the title is only a summary: read it with the noty MCP tool get_item for notes and attached screenshots or files)", "Category: \(path.joined(separator: "/"))",
                  "Type: \(kind.label)\(done ? ", done" : "")\(today ? ", today" : "")"]
         if !tags.isEmpty { l.append("Tags: " + tags.map { "#\($0)" }.joined(separator: " ")) }
         let q = resolvedQuote(store: store)
@@ -97,8 +97,16 @@ public enum ListReference {
     public static func text(title: String, link: String?, items: [Item]) -> String {
         var l = ["Noty list: \(title)"]
         if let link { l.append("Link: \(link)") }
-        l.append("\(items.count) item\(items.count == 1 ? "" : "s"). Read any of them with the noty MCP tool get_item.")
-        l += items.map { "- [\($0.done ? "x" : " ")] \($0.title)  (id \($0.id))" }
+        l.append("\(items.count) item\(items.count == 1 ? "" : "s"). The titles are only summaries: items often carry notes, highlighted text, screenshots or files with the real details. Before working on an item, read it with the noty MCP tool get_item (it returns the notes and the file paths of attachments, which you can open), and look at any screenshots.")
+        l += items.map { it in
+            var has: [String] = []
+            if !it.quote.isEmpty { has.append("highlighted text") }
+            if !it.notes.isEmpty { has.append("notes") }
+            let pics = it.imageAttachments.count, files = it.otherAttachments.count
+            if pics > 0 { has.append("\(pics) screenshot\(pics == 1 ? "" : "s")/image\(pics == 1 ? "" : "s")") }
+            if files > 0 { has.append("\(files) file\(files == 1 ? "" : "s")") }
+            return "- [\(it.done ? "x" : " ")] \(it.title)  (id \(it.id))" + (has.isEmpty ? "" : "  [has: \(has.joined(separator: ", "))]")
+        }
         return l.joined(separator: "\n")
     }
 }

@@ -22,6 +22,7 @@ struct PopoverView: View {
         .frame(width: 360)
         .background(Theme.pane)                                   // an opaque themed background: the popover must follow the app theme
         .overlay(alignment: .bottom) { ToastView() }
+        .onDrop(of: [.fileURL], isTargeted: nil) { lib.createTask(fromDrop: $0) }
         .onAppear { model.setPopoverVisible(true) }
         .onDisappear { model.setPopoverVisible(false) }
     }
@@ -30,13 +31,13 @@ struct PopoverView: View {
         HStack(spacing: 10) {
             Image(nsImage: AppIcon.image(size: 34)).resizable().frame(width: 34, height: 34)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Noty").font(.system(size: 15, weight: .semibold))
-                Text(model.status).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer()
-            Button { AppDelegate.shared.closePopover(); lib.snip(into: nil) } label: { Label("Snip", systemImage: "viewfinder").font(.system(size: 12)) }
-                .buttonStyle(Pill()).help("Drag over an area of the screen. It is saved as a new task.")
-            Button { CaptureController.shared.present(Captured()) } label: { Label("Capture", systemImage: "highlighter").font(.system(size: 12)) }
+                Text("Noty").font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                Text(model.status).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+            }.layoutPriority(-1)
+            Spacer(minLength: 4)
+            Button { AppDelegate.shared.closePopover(); lib.snip(into: nil) } label: { Image(systemName: "viewfinder").font(.system(size: 13)).frame(width: 14, height: 16) }
+                .buttonStyle(Pill()).help("Snip: drag over an area of the screen. It is saved as a new task.").accessibilityLabel("Snip a screen area")
+            Button { CaptureController.shared.present(Captured()) } label: { Label("Capture", systemImage: "highlighter").font(.system(size: 12)).lineLimit(1).fixedSize() }
                 .buttonStyle(Pill()).help("Opens the capture panel. Select text in another app and press \(Prefs.shared.hotkey.label) to capture it.")
         }
     }

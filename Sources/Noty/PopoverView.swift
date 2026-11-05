@@ -34,6 +34,8 @@ struct PopoverView: View {
                 Text(model.status).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
+            Button { AppDelegate.shared.closePopover(); lib.snip(into: nil) } label: { Label("Snip", systemImage: "viewfinder").font(.system(size: 12)) }
+                .buttonStyle(Pill()).help("Drag over an area of the screen. It is saved as a new task.")
             Button { CaptureController.shared.present(Captured()) } label: { Label("Capture", systemImage: "highlighter").font(.system(size: 12)) }
                 .buttonStyle(Pill()).help("Opens the capture panel. Select text in another app and press \(Prefs.shared.hotkey.label) to capture it.")
         }

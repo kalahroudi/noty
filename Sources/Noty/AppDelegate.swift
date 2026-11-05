@@ -62,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
             statusItem.menu = m; statusItem.button?.performClick(nil); statusItem.menu = nil   // menu only for this click
         } else { togglePopover() }
     }
+    func closePopover() { popover.performClose(nil) }
     @objc private func openManager() { showManager() }
 
     private func togglePopover() {

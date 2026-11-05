@@ -134,6 +134,16 @@ final class LibraryModel {
         for i in 1..<max(path.count, 1) { expanded.insert(path.prefix(i).joined(separator: "/")) }
     }
 
+    func renameCategory(_ path: [String], to name: String) {
+        guard run("Rename the category", { try store.renameCategory(path, to: name) }) != nil else { return }
+        let new = Array(path.dropLast()) + [NotyStore.cleanName(name)]
+        func swap(_ p: [String]) -> [String] { p.starts(with: path) ? new + p.dropFirst(path.count) : p }
+        expanded = Set(expanded.map { e in
+            let parts = e.split(separator: "/").map(String.init); return swap(parts).joined(separator: "/") })
+        if case .category(let p) = scope { scope = .category(swap(p)) }
+        Task { await reloadIfChanged(force: true) }
+    }
+
     func deleteCategory(_ path: [String]) {
         guard run("Delete the category", { try store.deleteCategory(path) }) != nil else { return }
         categories.removeAll { $0.path.starts(with: path) }

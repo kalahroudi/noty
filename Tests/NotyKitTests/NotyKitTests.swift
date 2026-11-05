@@ -79,6 +79,21 @@ final class KitTests: XCTestCase {
         XCTAssertTrue(s.load().items.isEmpty)
     }
 
+    func testSubcategoriesAndRename() throws {
+        let root = tmp(); defer { try? FileManager.default.removeItem(at: root) }
+        let s = NotyStore(root: root); try s.prepare()
+        try s.createCategory(["Projects", "acme", "Design"])
+        try s.save(Item(title: "logo", path: ["Projects", "acme", "Design"]))
+        XCTAssertTrue(s.load().categories.map(\.id).contains("Projects/acme/Design"))
+        try s.renameCategory(["Projects", "acme"], to: "Acme Corp")
+        let lib = s.load()
+        XCTAssertEqual(lib.items.first?.path, ["Projects", "Acme Corp", "Design"])
+        XCTAssertThrowsError(try s.renameCategory(["Projects", "Acme Corp"], to: "Acme Corp"))   // name already taken
+        try s.createCategory(["Projects", "other"])
+        XCTAssertThrowsError(try s.renameCategory(["Projects", "other"], to: "Acme Corp"))
+        XCTAssertThrowsError(try s.renameCategory(["Inbox"], to: "x"))
+    }
+
     func testDuplicateIdsFromSyncConflictAreArchived() throws {
         let root = tmp(); defer { try? FileManager.default.removeItem(at: root) }
         let s = NotyStore(root: root); try s.prepare()

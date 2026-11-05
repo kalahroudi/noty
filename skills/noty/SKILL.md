@@ -34,7 +34,8 @@ Noty is a macOS menu bar app where the user files text they highlighted in any a
 | `update_item {id, title?, kind?, tags?, today?, notes?, append_notes?}` | yes |
 | `move_item {id, path}` | yes |
 | `complete_item {id, done?}` | yes |
-| `create_category {path}` | yes |
+| `create_category {path}` | yes (any depth, e.g. `Projects/acme/Design`) |
+| `rename_category {path, new_name}` | yes |
 | `propose_file {name, content, note?, item_ids?, complete_items?}` | only after the user approves |
 | `delete_item {id, confirm_title}` | yes, ask the user first |
 

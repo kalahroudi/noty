@@ -167,6 +167,15 @@ public final class NotyStore: @unchecked Sendable {
         try fm.trashItem(at: d, resultingItemURL: nil)
     }
 
+    /// Renames a workspace or category (the last path component). Items inside move with the folder.
+    public func renameCategory(_ path: [String], to newName: String) throws {
+        guard path != [Self.inbox], !path.isEmpty else { throw UserFacingError("The Inbox can't be renamed.") }
+        let name = Self.cleanName(newName)
+        let target = dir(for: Array(path.dropLast()) + [name])
+        guard !fm.fileExists(atPath: target.path) else { throw UserFacingError("There is already a category called “\(name)” here.") }
+        try fm.moveItem(at: dir(for: path), to: target)
+    }
+
     /// Writes the item, creating its folder and moving the file if its category changed. Returns the saved item (with `file` set).
     @discardableResult
     public func save(_ item: Item) throws -> Item {

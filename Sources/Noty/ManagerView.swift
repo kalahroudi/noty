@@ -17,7 +17,7 @@ final class Nav {
     var pane: Pane = .library
 }
 
-struct NewCategoryRequest: Identifiable { let id = UUID(); let parent: [String] }
+struct NewCategoryRequest: Identifiable { let id = UUID(); let parent: [String]; var rename: [String]? = nil }
 
 /// The Manager window: a fixed sidebar (collapsible to icons) and a main pane that uses the full width.
 struct ManagerView: View {
@@ -41,7 +41,7 @@ struct ManagerView: View {
         }
         .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 900, minHeight: 560)
-        .sheet(item: $newCategory) { NewCategorySheet(parent: $0.parent) }
+        .sheet(item: $newCategory) { NewCategorySheet(parent: $0.parent, rename: $0.rename) }
         .onAppear { model.setManagerVisible(true) }
     }
 
@@ -128,29 +128,7 @@ struct Sidebar: View {
     }
 
     private func treeRow(_ c: CategoryNode) -> some View {
-        let on = nav.pane == .library && lib.scope == .category(c.path)
-        let key = c.id
-        let open = lib.expanded.contains(key)
-        return HStack(spacing: 0) {
-            Button { if open { lib.expanded.remove(key) } else { lib.expanded.insert(key) } } label: {
-                Image(systemName: hasChildren(c) ? (open ? "chevron.down" : "chevron.right") : "circle.fill")
-                    .font(.system(size: hasChildren(c) ? 9 : 4, weight: .bold)).foregroundStyle(.secondary).frame(width: 18, height: 26).contentShape(Rectangle())
-            }.buttonStyle(.plain).padding(.leading, CGFloat(c.depth) * 14 + 4).accessibilityLabel(open ? "Collapse" : "Expand")
-            Button { nav.pane = .library; lib.scope = .category(c.path); lib.selectedID = nil; if hasChildren(c) { lib.expanded.insert(key) } } label: {
-                HStack(spacing: 6) {
-                    Text(c.name).font(.system(size: 13, weight: c.depth == 0 || on ? .semibold : .regular)).lineLimit(1)
-                    Spacer(minLength: 4)
-                    let n = lib.count(in: c.path)
-                    if n > 0 { Text("\(n)").font(.system(size: 11.5)).monospacedDigit().foregroundStyle(.secondary) }
-                }
-                .padding(.horizontal, 6).padding(.vertical, 5).frame(maxWidth: .infinity, alignment: .leading)
-                .background(on ? Theme.accentSoft : .clear, in: RoundedRectangle(cornerRadius: 7)).contentShape(RoundedRectangle(cornerRadius: 7))
-            }.buttonStyle(.plain)
-        }
-        .contextMenu {
-            Button("New category inside “\(c.name)”") { newCategory = NewCategoryRequest(parent: c.path) }
-            Button("Delete “\(c.name)”", role: .destructive) { lib.deleteCategory(c.path) }
-        }
+        TreeRow(c: c, hasChildren: hasChildren(c), newCategory: $newCategory)
     }
 
     private func paneItem(_ p: Pane) -> some View {
@@ -174,24 +152,76 @@ struct Sidebar: View {
     }
 }
 
+/// One row of the workspace tree: expand arrow, name and count, and a "+" for a new category inside it.
+struct TreeRow: View {
+    let c: CategoryNode
+    let hasChildren: Bool
+    @Binding var newCategory: NewCategoryRequest?
+    let nav = Nav.shared
+    let lib = LibraryModel.shared
+    @State private var hover = false
+
+    var body: some View {
+        let on = nav.pane == .library && lib.scope == .category(c.path)
+        let open = lib.expanded.contains(c.id)
+        HStack(spacing: 0) {
+            Button { if open { lib.expanded.remove(c.id) } else { lib.expanded.insert(c.id) } } label: {
+                Image(systemName: hasChildren ? (open ? "chevron.down" : "chevron.right") : "circle.fill")
+                    .font(.system(size: hasChildren ? 9 : 4, weight: .bold)).foregroundStyle(.secondary).frame(width: 18, height: 26).contentShape(Rectangle())
+            }.buttonStyle(.plain).padding(.leading, CGFloat(c.depth) * 14 + 4).accessibilityLabel(open ? "Collapse" : "Expand")
+            Button { nav.pane = .library; lib.scope = .category(c.path); lib.selectedID = nil; if hasChildren { lib.expanded.insert(c.id) } } label: {
+                HStack(spacing: 6) {
+                    Text(c.name).font(.system(size: 13, weight: c.depth == 0 || on ? .semibold : .regular)).lineLimit(1)
+                    Spacer(minLength: 4)
+                    let n = lib.count(in: c.path)
+                    if n > 0 && !hover { Text("\(n)").font(.system(size: 11.5)).monospacedDigit().foregroundStyle(.secondary) }
+                }
+                .padding(.horizontal, 6).padding(.vertical, 5).frame(maxWidth: .infinity, alignment: .leading)
+                .background(on ? Theme.accentSoft : (hover ? Theme.fill : .clear), in: RoundedRectangle(cornerRadius: 7)).contentShape(RoundedRectangle(cornerRadius: 7))
+            }.buttonStyle(.plain)
+            .overlay(alignment: .trailing) {
+                if hover {
+                    Button { newCategory = NewCategoryRequest(parent: c.path); lib.expanded.insert(c.id) } label: {
+                        Image(systemName: "plus").font(.system(size: 11, weight: .semibold)).frame(width: 26, height: 24).contentShape(Rectangle())
+                    }.buttonStyle(.plain).foregroundStyle(.secondary).help("New category inside “\(c.name)”").accessibilityLabel("New category inside \(c.name)")
+                }
+            }
+        }
+        .onHover { hover = $0 }
+        .contextMenu {
+            Button("New category inside “\(c.name)”…") { newCategory = NewCategoryRequest(parent: c.path) }
+            Button("Rename…") { newCategory = NewCategoryRequest(parent: Array(c.path.dropLast()), rename: c.path) }
+            Divider()
+            Button("Delete “\(c.name)”", role: .destructive) { lib.deleteCategory(c.path) }
+        }
+    }
+}
+
 struct NewCategorySheet: View {
     let parent: [String]
+    var rename: [String]?
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
+    private var heading: String {
+        if rename != nil { return "Rename “\(rename?.last ?? "")”" }
+        return parent.isEmpty ? "New workspace" : "New category in \(parent.joined(separator: " › "))"
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(parent.isEmpty ? "New workspace" : "New category in \(parent.joined(separator: " › "))").font(.system(size: 15, weight: .semibold))
-            TextField("Name", text: $name).textFieldStyle(.roundedBorder).onSubmit(create)
+            Text(heading).font(.system(size: 15, weight: .semibold))
+            TextField(parent.isEmpty && rename == nil ? "Name, e.g. Projects" : "Name, e.g. acme-redesign", text: $name).textFieldStyle(.roundedBorder).onSubmit(create)
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.buttonStyle(Pill()).keyboardShortcut(.cancelAction)
-                Button("Create") { create() }.buttonStyle(Pill(kind: .primary)).keyboardShortcut(.defaultAction).disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button(rename == nil ? "Create" : "Rename") { create() }.buttonStyle(Pill(kind: .primary)).keyboardShortcut(.defaultAction).disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-        }.padding(20).frame(width: 340)
+        }.padding(20).frame(width: 360)
+        .onAppear { if let r = rename { name = r.last ?? "" } }
     }
     private func create() {
         let n = name.trimmingCharacters(in: .whitespaces)
         guard !n.isEmpty else { return }
-        LibraryModel.shared.createCategory(parent + [n]); dismiss()
+        if let r = rename { LibraryModel.shared.renameCategory(r, to: n) } else { LibraryModel.shared.createCategory(parent + [n]) }
+        dismiss()
     }
 }

@@ -22,7 +22,7 @@ Never delete my items without asking me first.
 - **Capture:** select text anywhere (mouse or `⇧`+arrows), press `⌥⌘N` (changeable). A small panel appears next to the pointer: pick a type and a category with the arrow keys, press `↩`. `⌘↩` adds and opens "Ask agent". Also available as right-click → Services → Add to Noty. Needs the Accessibility permission for the shortcut.
 - **Library:** workspaces and categories are folders; every item is a Markdown file with its highlighted text, notes, tags and source link. Open them in any editor.
 - **Sync:** Settings → Sync moves the library to iCloud Drive or any folder (Dropbox, Syncthing, git). No server, no account. If two Macs edit the same item, the newer copy wins and the other is kept in `_history`.
-- **Agents (MCP):** Settings → Agents connects Claude Code, Claude Desktop, Cursor and others in one click. Tools: `list_workspaces`, `list_items`, `get_item`, `search`, `add_item`, `update_item`, `move_item`, `complete_item`, `create_category`, `propose_file`, `delete_item`. Files an agent wants to create wait under Agent results until you approve them.
+- **Agents (MCP):** Settings → Agents connects Claude Code, Claude Desktop, Cursor and others in one click. Tools: `list_workspaces`, `list_items`, `get_item`, `search`, `add_item`, `update_item`, `move_item`, `complete_item`, `create_category`, `rename_category`, `propose_file`, `delete_item`. Files an agent wants to create wait under Agent results until you approve them.
 - **Ask agent:** on any item or list, choose Review, Break into subtasks, Turn into a skill, Write a .md file or Process & fix. Noty builds the prompt and can run it in Claude Code in your Terminal, or you copy it into any agent.
 
 ## Build

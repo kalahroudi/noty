@@ -123,7 +123,12 @@ final class CaptureModel {
         guard !q.isEmpty else { return paths }
         let hit = paths.filter { $0.joined(separator: " ").lowercased().contains(q.replacingOccurrences(of: "/", with: " ")) }
         let typed = NotyStore.parsePath(query)
-        return hit + (paths.contains(typed) || typed.isEmpty ? [] : [typed])
+        guard !typed.isEmpty else { return hit }
+        // A plain name can be made inside the workspace you used last (Projects › acme) or as a new workspace of its own.
+        var creates: [[String]] = []
+        if typed.count == 1, let ws = Prefs.shared.lastPath(for: captured.app)?.first, ws != NotyStore.inbox { creates.append([ws] + typed) }
+        creates.append(typed)
+        return hit + creates.filter { !paths.contains($0) }
     }
 
     func isNew(_ path: [String]) -> Bool { !LibraryModel.shared.allCategoryPaths.contains(path) }
@@ -206,7 +211,7 @@ struct CaptureView: View {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary).font(.system(size: 12))
-                    TextField("Where? Type to filter, or Work/New category", text: $model.query).textFieldStyle(.plain).focused($queryFocused)
+                    TextField("Where? Type to filter, or Projects/new-project", text: $model.query).textFieldStyle(.plain).focused($queryFocused)
                 }.padding(8)
                 Divider()
                 ScrollViewReader { proxy in

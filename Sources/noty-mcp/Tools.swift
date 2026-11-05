@@ -175,6 +175,13 @@ let allTools: [Tool] = {
         return "Created \(p.joined(separator: "/"))."
     })
 
+    t.append(Tool(name: "rename_category", description: "Rename a workspace or category (its last path part). Items inside keep their place. The Inbox can't be renamed.",
+                  properties: ["path": prop("string", "Current path, e.g. \"Projects/acme\"."), "new_name": prop("string", "New name for the last part.")], required: ["path", "new_name"]) { a in
+        let p = NotyStore.parsePath(try requireString(a, "path"))
+        do { try store().renameCategory(p, to: try requireString(a, "new_name")) } catch let e as UserFacingError { throw ToolError(message: e.message) }
+        return "Renamed \(p.joined(separator: "/")) to \(try requireString(a, "new_name"))."
+    })
+
     t.append(Tool(name: "propose_file", description: "Propose writing a Markdown file (a skill, a summary, a plan). Nothing is written until the user approves it in Noty under Agent results. For a skill use name \"skills/<skill-name>/SKILL.md\". Optionally finish the source items when approved.",
                   properties: ["name": prop("string", "Relative file name, e.g. skills/latency-budgets/SKILL.md or notes/q4-research.md. No leading slash, no .."),
                                "content": prop("string", "Full file contents."), "note": prop("string", "One line telling the user what this is."),

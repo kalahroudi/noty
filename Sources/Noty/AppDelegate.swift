@@ -83,17 +83,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         Task { await LibraryModel.shared.reloadIfChanged() }
         popover.performClose(nil)
         if managerWindow == nil {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 720),
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 860),
                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                              backing: .buffered, defer: false)
             w.titlebarAppearsTransparent = true
             w.titleVisibility = .hidden
             w.isReleasedWhenClosed = false
             w.minSize = NSSize(width: 900, height: 560)
-            w.setFrameAutosaveName("NotyManager")
+            w.setFrameAutosaveName("NotyManager2")
             w.delegate = self
             w.contentView = NSHostingView(rootView: ManagerView())
-            if !w.setFrameUsingName("NotyManager") { w.center() }
+            if !w.setFrameUsingName("NotyManager2") { w.center() }
             managerWindow = w
         }
         managerWindow?.makeKeyAndOrderFront(nil)

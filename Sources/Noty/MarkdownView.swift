@@ -9,6 +9,8 @@ struct MarkdownView: View {
     let text: String
     var imageURL: (Int) -> URL? = { _ in nil }
     var size: CGFloat = 12.5
+    var maxImageHeight: CGFloat = 220
+    var onImageTap: ((Int) -> Void)?
 
     private enum Block { case heading(Int, String), paragraph(String), bullet(Int, String, String), quote(String), code(String), table([[String]]), rule, image(Int) }
 
@@ -28,7 +30,12 @@ struct MarkdownView: View {
         case .code(let t): Text(t).font(.system(size: size - 1, design: .monospaced)).padding(8).frame(maxWidth: .infinity, alignment: .leading).background(Theme.fill, in: RoundedRectangle(cornerRadius: 6))
         case .rule: Divider()
         case .image(let n):
-            if let u = imageURL(n), let img = NSImage(contentsOf: u) { Image(nsImage: img).resizable().scaledToFit().frame(maxHeight: 220, alignment: .leading).clipShape(RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.hairline)) }
+            if let u = imageURL(n), let img = NSImage(contentsOf: u) {
+                Button { if let onImageTap { onImageTap(n) } else { NSWorkspace.shared.open(u) } } label: {
+                    Image(nsImage: img).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: maxImageHeight, alignment: .leading)
+                        .clipShape(RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.hairline))
+                }.buttonStyle(.plain).help("View full size")
+            }
         case .table(let rows):
             ScrollView(.horizontal, showsIndicators: false) {
                 Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {

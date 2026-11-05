@@ -4,12 +4,14 @@ import SwiftUI
 import NotyKit
 
 struct AgentRequest: Identifiable { let id = UUID(); let items: [Item] }
+struct DetailRequest: Identifiable { let id: String }
 
 /// Items of the selected scope on the left, the selected item's details on the right.
 struct LibraryPane: View {
     let lib = LibraryModel.shared
     @State private var request: AgentRequest?
     @State private var quickTitle = ""
+    @State private var detail: DetailRequest?
 
     var body: some View {
         if lib.scope == .agent { AgentResultsPane() } else { itemsPane }
@@ -31,10 +33,11 @@ struct LibraryPane: View {
             }
             if let it = lib.item(lib.selectedID) {
                 Divider()
-                InspectorView(item: it, ask: { request = AgentRequest(items: [$0]) }).id(it.id).frame(width: 320)
+                InspectorView(item: it, ask: { request = AgentRequest(items: [$0]) }, expand: { detail = DetailRequest(id: it.id) }).id(it.id).frame(width: 340)
             }
         }
         .sheet(item: $request) { AskAgentSheet(items: $0.items) }
+        .sheet(item: $detail) { ItemDetailView(id: $0.id) }
         .onChange(of: lib.askAgentFor) { _, id in
             if let id, let it = lib.item(id) { request = AgentRequest(items: [it]); lib.selectedID = id }
             lib.askAgentFor = nil
@@ -56,7 +59,7 @@ struct LibraryPane: View {
                     if groups.count > 1 || lib.scope != .category(g.value[0].path) {
                         Text(g.key.uppercased()).font(.system(size: 11, weight: .semibold)).tracking(0.5).foregroundStyle(.secondary).padding(.top, 12).padding(.leading, 10)
                     }
-                    ForEach(g.value) { ItemRow(item: $0) }
+                    ForEach(g.value) { it in ItemRow(item: it, open: { detail = DetailRequest(id: $0) }) }
                 }
             }.padding(.horizontal, 14).padding(.vertical, 12)
         }
@@ -90,6 +93,7 @@ struct LibraryPane: View {
 
 struct ItemRow: View {
     let item: Item
+    var open: (String) -> Void = { _ in }
     let lib = LibraryModel.shared
     @State private var hover = false
 
@@ -122,27 +126,29 @@ struct ItemRow: View {
         .overlay(RoundedRectangle(cornerRadius: 9).stroke(on ? Theme.hairline : .clear))
         .contentShape(RoundedRectangle(cornerRadius: 9))
         .onHover { hover = $0 }
-        .contextMenu { copyMenu(item); Divider(); Button(item.done ? "Mark as not done" : "Mark as done") { lib.toggleDone(item.id) } }
+        .simultaneousGesture(TapGesture(count: 2).onEnded { open(item.id) })
+        .contextMenu { Button { open(item.id) } label: { Label("Open full view", systemImage: "arrow.up.left.and.arrow.down.right") }; Divider(); copyMenu(item); Divider(); Button(item.done ? "Mark as not done" : "Mark as done") { lib.toggleDone(item.id) } }
     }
 }
 
 struct InspectorView: View {
     let item: Item
     var ask: (Item) -> Void
+    var expand: () -> Void = {}
     let lib = LibraryModel.shared
     @State private var draft: Item
     @State private var tagText: String
     @State private var saveTask: Task<Void, Never>?
     @State private var confirmDelete = false
 
-    init(item: Item, ask: @escaping (Item) -> Void) {
-        self.item = item; self.ask = ask
+    init(item: Item, ask: @escaping (Item) -> Void, expand: @escaping () -> Void = {}) {
+        self.item = item; self.ask = ask; self.expand = expand
         _draft = State(initialValue: item); _tagText = State(initialValue: item.tags.joined(separator: ", "))
     }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 TextField("Title", text: $draft.title, axis: .vertical).textFieldStyle(.plain).font(.system(size: 16, weight: .semibold)).lineLimit(1...4)
                 HStack(spacing: 8) {
                     Menu {
@@ -153,9 +159,14 @@ struct InspectorView: View {
                     Toggle("Done", isOn: $draft.done).toggleStyle(.checkbox)
                 }.font(.system(size: 12.5))
                 HStack(spacing: 6) {
-                    Button { copyText(item.deepLink, "Link copied. Paste it anywhere to open this item in Noty.") } label: { Label("Copy link", systemImage: "link") }.buttonStyle(Pill())
-                    Button { copyText(item.agentReference(store: lib.store), "Copied for your agent. It includes the id the Noty tools understand.") } label: { Label("For agent", systemImage: "sparkles") }.buttonStyle(Pill())
-                    Menu { copyMenu(item) } label: { Image(systemName: "ellipsis") }.menuStyle(.button).menuIndicator(.hidden).fixedSize()
+                    Button { copyText(item.deepLink, "Link copied. Paste it anywhere to open this item in Noty.") } label: { Label("Link", systemImage: "link").lineLimit(1) }.buttonStyle(Pill()).help("Copy a noty:// link to this item")
+                    Button { copyText(item.agentReference(store: lib.store), "Copied for your agent. It includes the id the Noty tools understand.") } label: { Label("For agent", systemImage: "sparkles").lineLimit(1) }.buttonStyle(Pill()).help("Copy a ready-to-paste reference for an AI agent")
+                    Button { expand() } label: { Label("Open", systemImage: "arrow.up.left.and.arrow.down.right").lineLimit(1) }.buttonStyle(Pill()).help("See everything at full size")
+                    Menu {
+                        copyMenu(item)
+                        Divider()
+                        Button(role: .destructive) { confirmDelete = true } label: { Label("Delete item…", systemImage: "trash") }
+                    } label: { Image(systemName: "ellipsis") }.menuStyle(.button).menuIndicator(.hidden).fixedSize()
                 }.font(.system(size: 12))
 
                 label("Category")
@@ -163,23 +174,24 @@ struct InspectorView: View {
                     ForEach(lib.allCategoryPaths, id: \.self) { p in Button(p.joined(separator: " › ")) { draft.path = p } }
                 } label: { Text(draft.path.joined(separator: " › ")).lineLimit(1); }.menuStyle(.button)
 
-                if !draft.quote.isEmpty {
+                if !quoteText.isEmpty {
                     label("Highlighted")
-                    MarkdownView(text: draft.quote, imageURL: { n in draft.imageAttachments.indices.contains(n - 1) ? lib.store.attachmentURL(draft.imageAttachments[n - 1]) : nil })
+                    MarkdownView(text: quoteText)
+                        .frame(maxHeight: 190, alignment: .top).clipped()
                         .padding(9).background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(alignment: .bottomTrailing) { Button("Show all") { expand() }.buttonStyle(.plain).font(.system(size: 11, weight: .semibold)).padding(6).background(.regularMaterial, in: Capsule()).padding(6).opacity(quoteText.count > 220 ? 1 : 0) }
                         .overlay(alignment: .leading) { Rectangle().fill(Theme.highlight).frame(width: 3).clipShape(RoundedRectangle(cornerRadius: 2)) }
                 }
-                let shownInline = draft.quote.contains("attachment:")
-                if !draft.imageAttachments.isEmpty && !shownInline {
+                if !draft.imageAttachments.isEmpty {
                     label("Images")
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 6)], spacing: 6) {
                         ForEach(draft.imageAttachments, id: \.self) { name in
                             let url = lib.store.attachmentURL(name)
                             if let img = NSImage(contentsOf: url) {
-                                Button { NSWorkspace.shared.open(url) } label: {
-                                    Image(nsImage: img).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 150)
+                                Button { expand() } label: {
+                                    Image(nsImage: img).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 110)
                                         .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: 7)).overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.hairline))
-                                }.buttonStyle(.plain).help("Open image").accessibilityLabel("Open image")
+                                }.buttonStyle(.plain).help("View full size").accessibilityLabel("View image full size")
                             }
                         }
                     }
@@ -206,7 +218,7 @@ struct InspectorView: View {
                 label("Tags")
                 TextField("comma, separated", text: $tagText).textFieldStyle(.roundedBorder)
                 label("Notes")
-                TextEditor(text: $draft.notes).font(.system(size: 12.5)).frame(minHeight: 90).scrollContentBackground(.hidden)
+                TextEditor(text: $draft.notes).font(.system(size: 12.5)).frame(height: 70).scrollContentBackground(.hidden)
                     .padding(4).background(Theme.card, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.hairline))
 
                 label("Ask an agent")
@@ -216,12 +228,13 @@ struct InspectorView: View {
                             .buttonStyle(Pill())
                     }
                 }
-                Button(role: .destructive) { confirmDelete = true } label: { Label("Delete item", systemImage: "trash") }.buttonStyle(Pill(kind: .danger)).padding(.top, 4)
+                Color.clear.frame(height: 0)
                     .confirmationDialog("Delete “\(draft.title)”?", isPresented: $confirmDelete) {
                         Button("Move to Trash", role: .destructive) { lib.delete(item.id) }
                     } message: { Text("The file goes to the Trash, so you can still get it back.") }
-            }.padding(16)
+            }.padding(14)
         }
+        .scrollIndicators(.hidden)
         .background(Theme.pane)
         .onChange(of: draft) { _, _ in schedule() }
         .onChange(of: tagText) { _, t in draft.tags = t.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
@@ -230,6 +243,11 @@ struct InspectorView: View {
     }
 
     private func label(_ s: String) -> some View { SectionLabel(s) }
+
+    /// The highlighted text without picture placeholders; the pictures are shown as thumbnails below.
+    private var quoteText: String {
+        draft.quote.replacingOccurrences(of: #"!\[[^\]]*\]\(attachment:\d+\)"#, with: "", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     private func schedule() {
         saveTask?.cancel()

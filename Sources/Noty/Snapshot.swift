@@ -24,7 +24,7 @@ enum SnapshotMode {
 
     @MainActor static var shots: [Shot] {
         func manager(_ p: Pane, dark: Bool = false, agents: Bool = false) -> Shot {
-            Shot(name: "manager-\(p.rawValue)\(agents ? "-agents" : "")\(dark ? "-dark" : "")", dark: dark, size: CGSize(width: 1000, height: 700)) {
+            Shot(name: "manager-\(p.rawValue)\(agents ? "-agents" : "")\(dark ? "-dark" : "")", dark: dark, size: CGSize(width: 1280, height: 860)) {
                 Nav.shared.pane = p
                 return AnyView(ManagerView(agentsTab: agents))
             }
@@ -37,7 +37,10 @@ enum SnapshotMode {
                 AnyView(CaptureView(model: CaptureModel(captured: Captured(text: "Set a latency budget per user journey, not per service. Measure p99 at the edge, alert on budget burn, and review the budget every quarter.", app: "Safari", windowTitle: "p99 latency is a product decision", url: "https://example.com/p99"))).padding(40).background(Theme.sidebar))
             }
         }
-        return [pop(), pop(dark: true), capture(), capture(dark: true), manager(.library), manager(.library, dark: true), manager(.settings), manager(.settings, agents: true), manager(.help)]
+        func detail() -> Shot {
+            Shot(name: "detail", dark: false, size: CGSize(width: 980, height: 760)) { AnyView(ItemDetailView(id: LibraryModel.shared.items[0].id)) }
+        }
+        return [detail(), pop(), pop(dark: true), capture(), capture(dark: true), manager(.library), manager(.library, dark: true), manager(.settings), manager(.settings, agents: true), manager(.help)]
     }
 
     @MainActor static func render(_ shot: Shot, to dir: String) async {
@@ -91,6 +94,13 @@ struct PopoverShot: View {
             Item(title: t, kind: kind, done: done, today: today, tags: tags, quote: quote, sourceApp: app, path: path)
         }
         let research = ["Work", "Q4 Launch", "Research"]
+        // a sample screenshot attachment, so the full-size viewer can be shown
+        let img = NSImage(size: NSSize(width: 1600, height: 900), flipped: false) { r in
+            NSGradient(starting: NSColor(srgbRed: 0.1, green: 0.12, blue: 0.16, alpha: 1), ending: NSColor(srgbRed: 0.05, green: 0.06, blue: 0.09, alpha: 1))?.draw(in: r, angle: 90)
+            for i in 0..<22 { ("2026-10-21 12:30:\(10 + i) INFO  GET /v1/models 200  p99=\(240 + i * 7) ms" as NSString).draw(at: NSPoint(x: 40, y: 840 - CGFloat(i) * 36), withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 22, weight: .regular), .foregroundColor: i % 7 == 5 ? NSColor.systemOrange : NSColor(white: 0.85, alpha: 1)]) }
+            return true
+        }
+        let sampleAttachment = NSBitmapImageRep(data: img.tiffRepresentation!)?.representation(using: .png, properties: [:]).flatMap { try? lib.store.saveAttachment($0, itemID: "demo0000", index: 1) }
         lib.items = [
             it("Set a latency budget per user journey", research, quote: "## Latency budgets\nSet a budget **per user journey**, not per service. See the [guide](https://example.com/p99).\n\n- Measure p99 at the edge\n- Alert on budget *burn*\n  - not on raw spikes\n\n| Journey | Budget |\n| --- | --- |\n| Checkout | 400 ms |\n| Search | 250 ms |", app: "Safari", today: true, tags: ["latency"]),
             it("Read RFC 9114 section on stream limits", research, app: "Preview", kind: .reference),
@@ -103,6 +113,7 @@ struct PopoverShot: View {
         ]
         lib.categories = ["Inbox", "Personal", "Work", "Work/Hiring", "Work/Q4 Launch", "Work/Q4 Launch/Build", "Work/Q4 Launch/Research"].map { CategoryNode(path: $0.split(separator: "/").map(String.init)) }
         lib.expanded = ["Work", "Work/Q4 Launch"]
+        if let a = sampleAttachment { lib.items[0].attachments = [a]; lib.items[0].quote += "\n\n![image](attachment:1)" }
         lib.scope = .category(["Work", "Q4 Launch"]); lib.selectedID = lib.items[0].id
         lib.loaded = true
     }

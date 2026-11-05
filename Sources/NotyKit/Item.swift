@@ -41,7 +41,8 @@ public struct Item: Identifiable, Equatable, Sendable {
 
     /// A short title taken from the first line of a highlighted passage.
     public static func makeTitle(from text: String) -> String {
-        let line = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
+        var line = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
+        if let m = line.range(of: #"^(\d{1,3}[\.\)]|[•◦▪‣·\-–*])\s+"#, options: .regularExpression) { line.removeSubrange(m) }
         if line.count <= 80 { return line }
         let cut = line.prefix(80)
         if let space = cut.lastIndex(of: " "), cut.distance(from: cut.startIndex, to: space) > 40 { return String(cut[..<space]) + "…" }

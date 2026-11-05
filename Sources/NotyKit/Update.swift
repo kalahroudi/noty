@@ -94,12 +94,13 @@ public enum UpdateStatus: Equatable, Sendable {
 }
 
 public enum UpdateError: Error, LocalizedError, Equatable {
-    case network(String), rateLimited, badResponse, missingTool(String), notBundled, notWritable(String), buildFailed(String), verifyFailed(String)
+    case network(String), rateLimited, badResponse, notPublic, missingTool(String), notBundled, notWritable(String), buildFailed(String), verifyFailed(String)
 
     public var errorDescription: String? {
         switch self {
         case .network(let m): return "Couldn't reach GitHub. \(m)"
         case .rateLimited: return "GitHub is limiting requests. Try again in a few minutes."
+        case .notPublic: return "Noty can't find any releases to download. The project on GitHub may still be private, so updates aren't available yet."
         case .badResponse: return "GitHub sent an answer that couldn't be read."
         case .missingTool(let t): return "\(t) is needed to build the update. Install the Xcode command line tools."
         case .notBundled: return "Updates work from the installed app, not from a development build."
@@ -167,6 +168,7 @@ public struct UpdateChecker: Sendable {
 
     func headSHA(repo: String, branch: String) async throws -> String {
         let (data, code) = try await get("/repos/\(repo)/commits/\(branch)")
+        if code == 404 { throw UpdateError.notPublic }   // private repo or unknown branch: GitHub answers 404 to anonymous requests
         guard code == 200, let sha = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["sha"] as? String else { throw UpdateError.badResponse }
         return sha
     }

@@ -111,7 +111,7 @@ final class CaptureModel {
 
     init(captured: Captured) {
         self.captured = captured
-        title = Item.makeTitle(from: captured.text)
+        title = captured.text.isEmpty && !captured.images.isEmpty ? "Image from \(captured.app ?? "screen")" : Item.makeTitle(from: captured.text)
     }
 
     /// Where it can go: the last-used category for this app first, then everything else; typing filters; a new path can be created on the spot.
@@ -149,10 +149,14 @@ final class CaptureModel {
     private func commit(path: [String], askAgent: Bool) {
         let lib = LibraryModel.shared
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty || !captured.text.isEmpty else { onClose(); return }
+        guard !t.isEmpty || !captured.text.isEmpty || !captured.images.isEmpty else { onClose(); return }
         if isNew(path) { lib.createCategory(path) }
-        let item = Item(title: t.isEmpty ? Item.makeTitle(from: captured.text) : t, kind: kind, today: today, quote: captured.text,
+        var item = Item(title: t.isEmpty ? Item.makeTitle(from: captured.text) : t, kind: kind, today: today, quote: captured.text,
                         sourceApp: captured.app, sourceTitle: captured.windowTitle, sourceURL: captured.url, path: path)
+        for (i, png) in captured.images.enumerated() {
+            if let name = try? lib.store.saveAttachment(png, itemID: item.id, index: i + 1) { item.attachments.append(name) }
+            else { AppModel.shared.show("Couldn't save one of the images, the text was added.", error: true) }
+        }
         guard let saved = lib.add(item) else { onClose(); return }
         Prefs.shared.rememberPath(path, for: captured.app)
         addedTo = path.joined(separator: " › ")
@@ -203,9 +207,19 @@ struct CaptureView: View {
                 Text(model.captured.text).font(.system(size: 12.5)).lineLimit(4).frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8).background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 7))
                     .overlay(alignment: .leading) { Rectangle().fill(Theme.highlight).frame(width: 3).clipShape(RoundedRectangle(cornerRadius: 2)) }
+                // (images are shown below the text)
                 if let src = model.captured.windowTitle ?? model.captured.app {
                     Label(src, systemImage: model.captured.url == nil ? "macwindow" : "link").font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 }
+            }
+            if !model.captured.images.isEmpty {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 6) {
+                        ForEach(Array(model.captured.images.enumerated()), id: \.offset) { _, d in
+                            if let img = NSImage(data: d) { Image(nsImage: img).resizable().scaledToFill().frame(width: 96, height: 64).clipShape(RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.hairline)) }
+                        }
+                    }
+                }.scrollIndicators(.never)
             }
             TextField("Title", text: $model.title).textFieldStyle(.roundedBorder).focused($titleFocused)
             VStack(spacing: 0) {

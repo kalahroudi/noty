@@ -110,6 +110,7 @@ struct ItemRow: View {
                     HStack(spacing: 6) {
                         if item.kind != .task { Badge(text: item.kind.label, kind: .neutral) }
                         if item.today { Badge(text: "Today", kind: .warn) }
+                        if !item.attachments.isEmpty { Label("\(item.attachments.count)", systemImage: "photo").font(.system(size: 11)).foregroundStyle(.secondary) }
                         if let a = item.sourceApp { Label(a, systemImage: item.sourceURL == nil ? "macwindow" : "link").font(.system(size: 11)).foregroundStyle(.secondary).labelStyle(.titleAndIcon) }
                         ForEach(item.tags.prefix(3), id: \.self) { Badge(text: "#\($0)", kind: .neutral) }
                     }
@@ -161,6 +162,20 @@ struct InspectorView: View {
                     Text(draft.quote).font(.system(size: 12.5)).textSelection(.enabled).padding(9).frame(maxWidth: .infinity, alignment: .leading)
                         .background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 8))
                         .overlay(alignment: .leading) { Rectangle().fill(Theme.highlight).frame(width: 3).clipShape(RoundedRectangle(cornerRadius: 2)) }
+                }
+                if !draft.attachments.isEmpty {
+                    label("Images")
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 6)], spacing: 6) {
+                        ForEach(draft.attachments, id: \.self) { name in
+                            let url = lib.store.attachmentURL(name)
+                            if let img = NSImage(contentsOf: url) {
+                                Button { NSWorkspace.shared.open(url) } label: {
+                                    Image(nsImage: img).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 150)
+                                        .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: 7)).overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.hairline))
+                                }.buttonStyle(.plain).help("Open image").accessibilityLabel("Open image")
+                            }
+                        }
+                    }
                 }
                 if draft.sourceApp != nil || draft.sourceURL != nil {
                     HStack(spacing: 6) {

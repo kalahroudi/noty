@@ -57,6 +57,19 @@ final class KitTests: XCTestCase {
         XCTAssertEqual(back?.sourceURL, item.sourceURL); XCTAssertEqual(back?.id, item.id)
     }
 
+    func testAttachmentsRoundTripAndTravelWithTheItem() throws {
+        let root = tmp(); defer { try? FileManager.default.removeItem(at: root) }
+        let s = NotyStore(root: root); try s.prepare()
+        var it = Item(title: "shot", path: ["Work"])
+        it.attachments = [try s.saveAttachment(Data([1, 2, 3]), itemID: it.id, index: 1)]
+        let saved = try s.save(it)
+        XCTAssertEqual(s.load().items.first?.attachments, saved.attachments)
+        XCTAssertEqual(try Data(contentsOf: s.attachmentURL(saved.attachments[0])), Data([1, 2, 3]))
+        XCTAssertEqual(s.attachmentURL("../../etc/passwd").deletingLastPathComponent().lastPathComponent, "_attachments")   // never escapes
+        try s.delete(saved)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: s.attachmentURL(saved.attachments[0]).path))
+    }
+
     func testDecodeRejectsFilesWithoutHeader() {
         XCTAssertNil(ItemFile.decode("# just a note\n"))
         XCTAssertNil(ItemFile.decode("---\ntitle: \"x\"\n---\n"))

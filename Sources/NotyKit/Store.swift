@@ -196,6 +196,7 @@ public final class NotyStore: @unchecked Sendable {
     }
 
     public func delete(_ item: Item) throws {
+        for a in item.attachments { try? fm.trashItem(at: attachmentURL(a), resultingItemURL: nil) }
         guard let f = item.file else { return }
         do { try fm.trashItem(at: f, resultingItemURL: nil) } catch { try fm.removeItem(at: f) }
     }
@@ -204,6 +205,19 @@ public final class NotyStore: @unchecked Sendable {
         let slug = item.title.lowercased().map { $0.isLetter || $0.isNumber ? String($0) : "-" }.joined()
             .split(separator: "-", omittingEmptySubsequences: true).joined(separator: "-")
         return "\(slug.prefix(40).isEmpty ? "item" : String(slug.prefix(40)))-\(item.id.prefix(6).lowercased()).md"
+    }
+
+    // MARK: Attachments (images from the highlighted selection)
+
+    public var attachmentsDir: URL { root.appendingPathComponent("_attachments", isDirectory: true) }
+    public func attachmentURL(_ name: String) -> URL { attachmentsDir.appendingPathComponent((name as NSString).lastPathComponent) }
+
+    /// Saves PNG data next to the library and returns the file name to store on the item.
+    public func saveAttachment(_ png: Data, itemID: String, index: Int) throws -> String {
+        try fm.createDirectory(at: attachmentsDir, withIntermediateDirectories: true)
+        let name = "\(itemID.prefix(8).lowercased())-\(index).png"
+        try png.write(to: attachmentURL(name), options: .atomic)
+        return name
     }
 
     // MARK: Agent proposals

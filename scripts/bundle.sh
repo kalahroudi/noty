@@ -51,7 +51,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
       <key>NSMenuItem</key><dict><key>default</key><string>Add to Noty</string></dict>
       <key>NSMessage</key><string>addToNoty</string>
       <key>NSPortName</key><string>Noty</string>
-      <key>NSSendTypes</key><array><string>public.utf8-plain-text</string></array>
+      <key>NSSendTypes</key><array><string>public.utf8-plain-text</string><string>public.png</string><string>public.tiff</string><string>com.apple.flat-rtfd</string></array>
     </dict>
   </array>
 </dict>

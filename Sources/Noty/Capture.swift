@@ -11,6 +11,8 @@ struct Captured {
     var app: String?
     var windowTitle: String?
     var url: String?
+    /// Images found in the selection, as PNG data.
+    var images: [Data] = []
 }
 
 /// The global shortcut (Carbon RegisterEventHotKey: needs no permission and costs nothing while idle).
@@ -56,8 +58,11 @@ enum SelectionReader {
             if trusted { fillSource(&c, pid: front.processIdentifier) }
         }
         guard trusted else { return c }
-        if let t = axSelectedText(), !t.isEmpty { c.text = t; return c }
-        c.text = await copyFallback() ?? ""
+        // ⌘C always runs too: the Accessibility text has no images, and the clipboard has the rich version (text + pictures).
+        let copied = await copyFallback()
+        c.images = copied.images
+        let ax = axSelectedText() ?? ""
+        c.text = ax.isEmpty ? copied.text : ax
         return c
     }
 
@@ -81,8 +86,8 @@ enum SelectionReader {
         if AXUIElementCopyAttributeValue(window, kAXDocumentAttribute as CFString, &u) == .success, let s = u as? String, s.hasPrefix("http") || s.hasPrefix("file") { c.url = s }
     }
 
-    /// Apps that do not expose their selection (browsers' web content, Electron): send ⌘C, read the clipboard, then put the old one back.
-    @MainActor private static func copyFallback() async -> String? {
+    /// Sends ⌘C, reads text and pictures from the clipboard, then puts the old clipboard back.
+    @MainActor private static func copyFallback() async -> (text: String, images: [Data]) {
         let pb = NSPasteboard.general
         let saved: [[(NSPasteboard.PasteboardType, Data)]] = (pb.pasteboardItems ?? []).map { item in item.types.compactMap { t in item.data(forType: t).map { (t, $0) } } }
         let before = pb.changeCount
@@ -91,27 +96,47 @@ enum SelectionReader {
             let e = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(kVK_ANSI_C), keyDown: down)
             e?.flags = .maskCommand; e?.post(tap: .cghidEventTap)
         }
-        var text: String?
+        var changed = false
         for _ in 0..<12 {
             try? await Task.sleep(for: .milliseconds(25))
-            if pb.changeCount != before { text = pb.string(forType: .string); break }
+            if pb.changeCount != before { changed = true; break }
         }
-        if text != nil {
-            pb.clearContents()
-            for item in saved {
-                let n = NSPasteboardItem()
-                for (t, d) in item { n.setData(d, forType: t) }
-                pb.writeObjects([n])
+        guard changed else { return ("", []) }
+        let result = extract(from: pb)
+        pb.clearContents()
+        for item in saved {
+            let n = NSPasteboardItem()
+            for (t, d) in item { n.setData(d, forType: t) }
+            pb.writeObjects([n])
+        }
+        return result
+    }
+
+    /// Text without attachment placeholder characters, and every picture on the pasteboard as PNG (direct images, and pictures inside rich text).
+    static func extract(from pb: NSPasteboard) -> (text: String, images: [Data]) {
+        var png: [Data] = []
+        func add(_ data: Data?) {
+            guard let data, data.count < 20_000_000, png.count < 6, let rep = NSBitmapImageRep(data: data), let out = rep.representation(using: .png, properties: [:]),
+                  !png.contains(out) else { return }
+            png.append(out)
+        }
+        add(pb.data(forType: .png)); add(pb.data(forType: .tiff))
+        if png.isEmpty, let rtfd = pb.data(forType: .rtfd), let str = try? NSAttributedString(data: rtfd, options: [.documentType: NSAttributedString.DocumentType.rtfd], documentAttributes: nil) {
+            str.enumerateAttribute(.attachment, in: NSRange(location: 0, length: str.length)) { v, _, _ in
+                guard let att = v as? NSTextAttachment else { return }
+                if let d = att.fileWrapper?.regularFileContents { add(d) } else if let img = att.image { add(img.tiffRepresentation) }
             }
         }
-        return text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = (pb.string(forType: .string) ?? "").replacingOccurrences(of: "\u{FFFC}", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return (text, png)
     }
 }
 
 /// "Add to Noty" in the right-click Services menu of any app. Works without the Accessibility permission.
 final class ServicesProvider: NSObject {
     @objc func addToNoty(_ pboard: NSPasteboard, userData: String, error: AutoreleasingUnsafeMutablePointer<NSString>) {
-        guard let text = pboard.string(forType: .string), !text.isEmpty else { return }
-        DispatchQueue.main.async { MainActor.assumeIsolated { CaptureController.shared.present(Captured(text: text, app: NSWorkspace.shared.frontmostApplication?.localizedName)) } }
+        let got = SelectionReader.extract(from: pboard)
+        guard !got.text.isEmpty || !got.images.isEmpty else { return }
+        DispatchQueue.main.async { MainActor.assumeIsolated { CaptureController.shared.present(Captured(text: got.text, app: NSWorkspace.shared.frontmostApplication?.localizedName, images: got.images)) } }
     }
 }

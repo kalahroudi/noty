@@ -53,7 +53,7 @@ private func find(_ s: NotyStore, _ id: String) throws -> Item {
     return it
 }
 
-private func dict(_ it: Item, full: Bool = true) -> [String: Any] {
+private func dict(_ it: Item, full: Bool = true, store: NotyStore? = nil) -> [String: Any] {
     var d: [String: Any] = ["id": it.id, "title": it.title, "kind": it.kind.rawValue, "done": it.done, "today": it.today,
                             "path": it.pathLabel.replacingOccurrences(of: " › ", with: "/"), "tags": it.tags]
     if full {
@@ -62,6 +62,7 @@ private func dict(_ it: Item, full: Bool = true) -> [String: Any] {
         if let v = it.sourceApp { src["app"] = v }; if let v = it.sourceTitle { src["title"] = v }; if let v = it.sourceURL { src["url"] = v }
         if !src.isEmpty { d["source"] = src }
         d["created"] = ISO8601DateFormatter().string(from: it.created)
+        if !it.attachments.isEmpty, let st = store { d["image_files"] = it.attachments.map { st.attachmentURL($0).path } }
     } else if !it.quote.isEmpty { d["quote"] = String(it.quote.prefix(160)) }
     return d
 }
@@ -116,9 +117,9 @@ let allTools: [Tool] = {
         return try text(["total": hits.count, "items": hits.prefix(limit).map { dict($0, full: false) }] as [String: Any])
     })
 
-    t.append(Tool(name: "get_item", description: "Everything about one item: highlighted text, notes, source app/title/URL, tags and category.",
+    t.append(Tool(name: "get_item", description: "Everything about one item: highlighted text, notes, source app/title/URL, tags, category and image_files (absolute paths of images captured with it, which you can open and look at).",
                   properties: ["id": prop("string", "Item id (a prefix of at least 6 characters also works).")], required: ["id"], readOnly: true) { a in
-        try text(dict(try find(try store(), try requireString(a, "id"))))
+        let s = try store(); return try text(dict(try find(s, try requireString(a, "id")), store: s))
     })
 
     t.append(Tool(name: "search", description: "Search all items by words in title, highlighted text, notes, tags or category.",

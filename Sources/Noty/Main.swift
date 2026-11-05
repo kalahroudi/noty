@@ -13,7 +13,11 @@ enum NotyMain {
     static func main() {
         let args = CommandLine.arguments
         // Command line helpers used by the build scripts and the updater. They must run before any app state exists.
-        if args.contains("--self-test") { print("ok \(BuildInfo.current.commit ?? "dev")"); exit(0) }
+        if args.contains("--self-test") {
+            let md = "Plain **bold** *it* ~~x~~ <u>u</u> <span style=\"color:#D64545\">red</span> <span style=\"font-size:22px\">big</span> \\*lit\\*\n- item"
+            let back = NotesMarkdown.markdown(NotesMarkdown.attributed(md))
+            guard NotesMarkdown.attributed(back).string == NotesMarkdown.attributed(md).string, back.contains("**bold**"), back.contains("color:#D64545"), back.contains("22px") else { print("notes round-trip failed: \(back)"); exit(1) }
+            print("ok \(BuildInfo.current.commit ?? "dev")"); exit(0) }
         if let i = args.firstIndex(of: "--write-iconset"), i + 1 < args.count {
             do { try AppIcon.writeIconset(to: args[i + 1]); exit(0) } catch { FileHandle.standardError.write(Data("\(error)\n".utf8)); exit(1) }
         }
@@ -54,6 +58,7 @@ enum NotyMain {
             item("About Noty", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
             .separator(),
             item("Capture Selection", #selector(AppDelegate.captureSelection), "n", [.command, .option], target: delegate),
+            item("Capture Screen Area", #selector(AppDelegate.snipScreen), "s", [.command, .option], target: delegate),
             .separator(),
             item("Settings…", #selector(AppDelegate.openSettings), ",", target: delegate),
             .separator(),

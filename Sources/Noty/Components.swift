@@ -291,3 +291,53 @@ struct SourceLabel: View {
         Label("from \(app)", systemImage: hasLink ? "link" : "arrow.up.forward.app").font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
     }
 }
+
+// MARK: Form controls
+
+/// Text input with a visible box and an accent ring while focused, so a field looks like something you can type in.
+struct FieldBox: ViewModifier {
+    @FocusState private var focused: Bool
+    func body(content: Content) -> some View {
+        content.textFieldStyle(.plain).font(.system(size: 13)).focused($focused)
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(focused ? Theme.highlight : Theme.hairline, lineWidth: focused ? 1.5 : 1))
+    }
+}
+extension View { func fieldBox() -> some View { modifier(FieldBox()) } }
+
+/// A dropdown that looks like a field: current value, chevron, same box as the text inputs.
+struct MenuField<Content: View>: View {
+    var symbol: String?
+    let value: String
+    @ViewBuilder var content: Content
+    var body: some View {
+        Menu { content } label: {
+            HStack(spacing: 7) {
+                if let symbol { Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 15) }
+                Text(value).lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+            }
+            .font(.system(size: 13)).padding(.horizontal, 10).padding(.vertical, 7).contentShape(Rectangle())
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.hairline))
+        }.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+    }
+}
+
+/// A labelled on/off chip (Today, Done) that is filled when on.
+struct ToggleChip: View {
+    let title: String
+    let symbol: String
+    @Binding var isOn: Bool
+    var body: some View {
+        Button { isOn.toggle() } label: {
+            Label(title, systemImage: symbol).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .foregroundStyle(isOn ? Theme.onSoft : Color.secondary)
+                .background(isOn ? Theme.accentSoft : Theme.fill, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(isOn ? Theme.highlight.opacity(0.6) : .clear))
+        }.buttonStyle(.plain).accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+}

@@ -24,6 +24,8 @@ struct LibraryPane: View {
                 PaneHeader(title: lib.query.isEmpty ? lib.scope.title : "Search", subtitle: subtitle(items.count)) {
                     HStack(spacing: 8) {
                         SearchBox(prompt: "Search everything", text: Bindable(lib).query).frame(width: 160)
+                        Button { lib.snip(into: nil) } label: { Label("Snip", systemImage: "viewfinder") }.buttonStyle(Pill()).fixedSize()
+                            .help("Drag over an area of the screen. It is saved as a new task you can edit.")
                         Button { request = AgentRequest(items: Array(items.prefix(25))) } label: { Label("Ask agent", systemImage: "sparkles") }
                             .buttonStyle(Pill(kind: .primary)).disabled(items.isEmpty).fixedSize()
                     }.fixedSize(horizontal: false, vertical: true)
@@ -33,7 +35,7 @@ struct LibraryPane: View {
             }
             if let it = lib.item(lib.selectedID) {
                 Divider()
-                InspectorView(item: it, ask: { request = AgentRequest(items: [$0]) }, expand: { detail = DetailRequest(id: it.id) }).id(it.id).frame(width: 340)
+                InspectorView(item: it, ask: { request = AgentRequest(items: [$0]) }, expand: { detail = DetailRequest(id: it.id) }).id(it.id).frame(width: 360)
             }
         }
         .sheet(item: $request) { AskAgentSheet(items: $0.items) }
@@ -140,6 +142,7 @@ struct InspectorView: View {
     @State private var tagText: String
     @State private var saveTask: Task<Void, Never>?
     @State private var confirmDelete = false
+    @State private var dropTargeted = false
 
     init(item: Item, ask: @escaping (Item) -> Void, expand: @escaping () -> Void = {}) {
         self.item = item; self.ask = ask; self.expand = expand
@@ -148,16 +151,17 @@ struct InspectorView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                TextField("Title", text: $draft.title, axis: .vertical).textFieldStyle(.plain).font(.system(size: 16, weight: .semibold)).lineLimit(1...4)
-                HStack(spacing: 8) {
-                    Menu {
+            VStack(alignment: .leading, spacing: 12) {
+                TextField("Title", text: $draft.title, axis: .vertical).textFieldStyle(.plain).font(.system(size: 17, weight: .semibold)).lineLimit(1...4)
+                    .padding(.bottom, 2)
+                HStack(spacing: 6) {
+                    MenuField(symbol: draft.kind.symbol, value: draft.kind.label) {
                         ForEach(ItemKind.allCases, id: \.self) { k in Button { draft.kind = k } label: { Label(k.label, systemImage: k.symbol) } }
-                    } label: { Label(draft.kind.label, systemImage: draft.kind.symbol) }.menuStyle(.button).fixedSize()
-                    Toggle("Today", isOn: $draft.today).toggleStyle(.checkbox)
-                    Spacer()
-                    Toggle("Done", isOn: $draft.done).toggleStyle(.checkbox)
-                }.font(.system(size: 12.5))
+                    }.frame(maxWidth: 120)
+                    ToggleChip(title: "Today", symbol: "sun.max", isOn: $draft.today)
+                    Spacer(minLength: 0)
+                    ToggleChip(title: "Done", symbol: draft.done ? "checkmark.circle.fill" : "circle", isOn: $draft.done)
+                }
                 HStack(spacing: 6) {
                     Button { copyText(item.deepLink, "Link copied. Paste it anywhere to open this item in Noty.") } label: { Label("Link", systemImage: "link").lineLimit(1) }.buttonStyle(Pill()).help("Copy a noty:// link to this item")
                     Button { copyText(item.agentReference(store: lib.store), "Copied for your agent. It includes the id the Noty tools understand.") } label: { Label("For agent", systemImage: "sparkles").lineLimit(1) }.buttonStyle(Pill()).help("Copy a ready-to-paste reference for an AI agent")
@@ -166,80 +170,122 @@ struct InspectorView: View {
                         copyMenu(item)
                         Divider()
                         Button(role: .destructive) { confirmDelete = true } label: { Label("Delete item…", systemImage: "trash") }
-                    } label: { Image(systemName: "ellipsis") }.menuStyle(.button).menuIndicator(.hidden).fixedSize()
+                    } label: { Image(systemName: "ellipsis").frame(width: 22, height: 22) }.menuStyle(.button).menuIndicator(.hidden).fixedSize()
                 }.font(.system(size: 12))
 
-                label("Category")
-                Menu {
-                    ForEach(lib.allCategoryPaths, id: \.self) { p in Button(p.joined(separator: " › ")) { draft.path = p } }
-                } label: { Text(draft.path.joined(separator: " › ")).lineLimit(1); }.menuStyle(.button)
+                group("Category") {
+                    MenuField(symbol: "folder", value: draft.path.joined(separator: " › ")) {
+                        ForEach(lib.allCategoryPaths, id: \.self) { p in Button(p.joined(separator: " › ")) { draft.path = p } }
+                    }
+                }
 
                 if !quoteText.isEmpty {
-                    label("Highlighted")
-                    MarkdownView(text: quoteText)
-                        .frame(maxHeight: 190, alignment: .top).clipped()
-                        .padding(9).background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(alignment: .bottomTrailing) { Button("Show all") { expand() }.buttonStyle(.plain).font(.system(size: 11, weight: .semibold)).padding(6).background(.regularMaterial, in: Capsule()).padding(6).opacity(quoteText.count > 220 ? 1 : 0) }
-                        .overlay(alignment: .leading) { Rectangle().fill(Theme.highlight).frame(width: 3).clipShape(RoundedRectangle(cornerRadius: 2)) }
-                }
-                if !draft.imageAttachments.isEmpty {
-                    label("Images")
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 6)], spacing: 6) {
-                        ForEach(draft.imageAttachments, id: \.self) { name in
-                            let url = lib.store.attachmentURL(name)
-                            if let img = NSImage(contentsOf: url) {
-                                Button { expand() } label: {
-                                    Image(nsImage: img).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 110)
-                                        .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: 7)).overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.hairline))
-                                }.buttonStyle(.plain).help("View full size").accessibilityLabel("View image full size")
-                            }
-                        }
+                    group("Highlighted") {
+                        MarkdownView(text: quoteText)
+                            .frame(maxHeight: 190, alignment: .top).clipped()
+                            .padding(9).background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(alignment: .bottomTrailing) { Button("Show all") { expand() }.buttonStyle(.plain).font(.system(size: 11, weight: .semibold)).padding(6).background(.regularMaterial, in: Capsule()).padding(6).opacity(quoteText.count > 220 ? 1 : 0) }
+                            .overlay(alignment: .leading) { Rectangle().fill(Theme.highlight).frame(width: 3).clipShape(RoundedRectangle(cornerRadius: 2)) }
                     }
                 }
-                if !draft.otherAttachments.isEmpty {
-                    label("Files")
-                    ForEach(draft.otherAttachments, id: \.self) { name in
-                        Button { NSWorkspace.shared.open(lib.store.attachmentURL(name)) } label: {
-                            HStack(spacing: 6) { Image(systemName: name.hasSuffix(".pdf") ? "doc.richtext" : "doc"); Text(name).lineLimit(1); Spacer(); Image(systemName: "arrow.up.right.square").foregroundStyle(.secondary) }
-                                .font(.system(size: 12)).padding(8).background(Theme.card, in: RoundedRectangle(cornerRadius: 7)).overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.hairline)).contentShape(Rectangle())
-                        }.buttonStyle(.plain).help("Open file")
-                    }
-                }
+
+                group("Notes") { NotesEditor(markdown: $draft.notes) }
+
+                group("Attachments") { attachments }
+
                 if draft.sourceApp != nil || draft.sourceURL != nil {
-                    label("Source")
-                    HStack(spacing: 6) {
-                        Image(systemName: draft.sourceURL == nil ? "arrow.up.forward.app" : "link").foregroundStyle(.secondary)
-                        if let u = draft.sourceURL, let url = URL(string: u) { Link(draft.sourceTitle ?? u, destination: url).lineLimit(1) }
-                        else { Text(draft.sourceTitle ?? draft.sourceApp ?? "").lineLimit(1) }
-                        if let a = draft.sourceApp, draft.sourceURL != nil || draft.sourceTitle != nil { Text("· \(a)").foregroundStyle(.secondary) }
-                    }.font(.system(size: 12))
+                    group("Source") {
+                        HStack(spacing: 6) {
+                            Image(systemName: draft.sourceURL == nil ? "arrow.up.forward.app" : "link").foregroundStyle(.secondary)
+                            if let u = draft.sourceURL, let url = URL(string: u) { Link(draft.sourceTitle ?? u, destination: url).lineLimit(1) }
+                            else { Text(draft.sourceTitle ?? draft.sourceApp ?? "").lineLimit(1) }
+                            if let a = draft.sourceApp, draft.sourceURL != nil || draft.sourceTitle != nil { Text("· \(a)").foregroundStyle(.secondary) }
+                        }.font(.system(size: 12))
+                    }
                 }
 
-                label("Tags")
-                TextField("comma, separated", text: $tagText).textFieldStyle(.roundedBorder)
-                label("Notes")
-                TextEditor(text: $draft.notes).font(.system(size: 12.5)).frame(height: 70).scrollContentBackground(.hidden)
-                    .padding(4).background(Theme.card, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.hairline))
+                group("Tags") { TextField("comma, separated", text: $tagText).fieldBox() }
 
-                label("Ask an agent")
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
-                    ForEach(AgentAction.allCases) { a in
-                        Button { flush(); AgentSheetPreset.shared.action = a; ask(draft) } label: { Label(a.label, systemImage: a.symbol).font(.system(size: 11.5)).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading) }
-                            .buttonStyle(Pill())
+                group("Ask an agent") {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
+                        ForEach(AgentAction.allCases) { a in
+                            Button { flush(); AgentSheetPreset.shared.action = a; ask(draft) } label: { Label(a.label, systemImage: a.symbol).font(.system(size: 11.5)).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading) }
+                                .buttonStyle(Pill())
+                        }
                     }
                 }
                 Color.clear.frame(height: 0)
                     .confirmationDialog("Delete “\(draft.title)”?", isPresented: $confirmDelete) {
                         Button("Move to Trash", role: .destructive) { lib.delete(item.id) }
                     } message: { Text("The file goes to the Trash, so you can still get it back.") }
-            }.padding(14)
+            }.padding(16)
         }
         .scrollIndicators(.hidden)
         .background(Theme.pane)
+        .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
+            for p in providers { _ = p.loadObject(ofClass: URL.self) { url, _ in if let url { Task { @MainActor in lib.attach(fileAt: url, to: item.id) } } } }
+            return true
+        }
+        .overlay { if dropTargeted { RoundedRectangle(cornerRadius: 10).stroke(Theme.highlight, style: StrokeStyle(lineWidth: 2, dash: [6])).padding(6).allowsHitTesting(false) } }
         .onChange(of: draft) { _, _ in schedule() }
         .onChange(of: tagText) { _, t in draft.tags = t.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
         .onChange(of: item.done) { _, d in if draft.done != d { draft.done = d } }
+        .onChange(of: item.attachments) { _, a in if draft.attachments != a { draft.attachments = a } }
         .onDisappear { flush() }
+    }
+
+    private func group<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 6) { SectionLabel(title); content() }
+    }
+
+    /// Pictures and files that belong to the task: add from disk, snip the screen, paste, or drop files on the pane.
+    private var attachments: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Button { chooseFiles() } label: { Label("Add file", systemImage: "paperclip").lineLimit(1) }.buttonStyle(Pill()).help("Attach a file or picture")
+                Button { lib.snip(into: item.id) } label: { Label("Screenshot", systemImage: "viewfinder").lineLimit(1) }.buttonStyle(Pill()).help("Drag over an area of the screen to attach it")
+                Button { pasteImage() } label: { Image(systemName: "doc.on.clipboard").frame(width: 14) }.buttonStyle(Pill()).help("Attach the picture on the clipboard").accessibilityLabel("Paste picture")
+            }.font(.system(size: 12))
+            if !draft.imageAttachments.isEmpty {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 6)], spacing: 6) {
+                    ForEach(draft.imageAttachments, id: \.self) { name in
+                        if let img = NSImage(contentsOf: lib.store.attachmentURL(name)) {
+                            Button { expand() } label: {
+                                Image(nsImage: img).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 110)
+                                    .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: 7)).overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.hairline))
+                            }.buttonStyle(.plain).help("View full size").accessibilityLabel("View image full size")
+                            .overlay(alignment: .topTrailing) { removeButton(name) }
+                        }
+                    }
+                }
+            }
+            ForEach(draft.otherAttachments, id: \.self) { name in
+                HStack(spacing: 6) {
+                    Button { NSWorkspace.shared.open(lib.store.attachmentURL(name)) } label: {
+                        HStack(spacing: 6) { Image(systemName: name.hasSuffix(".pdf") ? "doc.richtext" : "doc"); Text(name).lineLimit(1).truncationMode(.middle); Spacer(); Image(systemName: "arrow.up.right.square").foregroundStyle(.secondary) }.contentShape(Rectangle())
+                    }.buttonStyle(.plain).help("Open file")
+                    removeButton(name, floating: false)
+                }.font(.system(size: 12)).padding(8).background(Theme.card, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.hairline))
+            }
+            if draft.attachments.isEmpty { Text("Drop files here, or use the buttons above.").font(.system(size: 11.5)).foregroundStyle(.secondary) }
+        }
+    }
+
+    private func removeButton(_ name: String, floating: Bool = true) -> some View {
+        Button { lib.removeAttachment(name, from: item.id) } label: {
+            Image(systemName: "xmark.circle.fill").symbolRenderingMode(.palette).foregroundStyle(.white, .black.opacity(0.55)).font(.system(size: 15))
+        }.buttonStyle(.plain).padding(floating ? 4 : 0).help("Remove").accessibilityLabel("Remove attachment")
+    }
+
+    private func chooseFiles() {
+        let panel = NSOpenPanel(); panel.allowsMultipleSelection = true; panel.canChooseDirectories = false
+        panel.prompt = "Attach"
+        if panel.runModal() == .OK { panel.urls.forEach { lib.attach(fileAt: $0, to: item.id) } }
+    }
+
+    private func pasteImage() {
+        if let png = Snip.clipboardImage() { lib.attach(png, ext: "png", to: item.id) }
+        else { AppModel.shared.show("There's no picture on the clipboard.", error: true) }
     }
 
     private func label(_ s: String) -> some View { SectionLabel(s) }

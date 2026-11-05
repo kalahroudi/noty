@@ -55,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
             let m = NSMenu()
             m.addItem(withTitle: "Open Noty", action: #selector(openManager), keyEquivalent: "").target = self
             m.addItem(withTitle: "Capture selection  \(Prefs.shared.hotkey.label)", action: #selector(captureSelection), keyEquivalent: "").target = self
+            m.addItem(withTitle: "Capture screen area", action: #selector(snipScreen), keyEquivalent: "").target = self
             m.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
             m.addItem(.separator())
             m.addItem(withTitle: "Quit Noty", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -137,6 +138,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
             }
         }
     }
+
+    @objc func snipScreen() { LibraryModel.shared.snip(into: nil) }
 
     @objc func captureSelection() { CaptureController.shared.captureSelection() }
 

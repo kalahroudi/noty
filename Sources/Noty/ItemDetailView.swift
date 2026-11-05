@@ -10,6 +10,10 @@ struct ItemDetailView: View {
     @Environment(\.dismiss) private var dismiss
     let lib = LibraryModel.shared
     @State private var zoom: Zoom = .fit
+    @State private var title = ""
+    @State private var notes = ""
+    @State private var loadedEdits = false
+    @State private var saveTask: Task<Void, Never>?
     enum Zoom: String, CaseIterable { case fit = "Fit", actual = "100%", double = "200%" }
 
     var body: some View {
@@ -22,7 +26,7 @@ struct ItemDetailView: View {
         VStack(spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(item.title).font(.system(size: 20, weight: .semibold)).textSelection(.enabled)
+                    TextField("Title", text: $title, axis: .vertical).textFieldStyle(.plain).font(.system(size: 20, weight: .semibold)).lineLimit(1...3)
                     HStack(spacing: 6) {
                         KindBadge(kind: item.kind)
                         Text(item.pathLabel).font(.system(size: 12)).foregroundStyle(.secondary)
@@ -43,7 +47,7 @@ struct ItemDetailView: View {
                             .overlay(alignment: .leading) { Rectangle().fill(Theme.highlight).frame(width: 3).clipShape(RoundedRectangle(cornerRadius: 2)) }
                     }
                     ForEach(item.imageAttachments, id: \.self) { full($0) }
-                    if !item.notes.isEmpty { SectionLabel("Notes"); Text(item.notes).font(.system(size: 14)).textSelection(.enabled) }
+                    SectionLabel("Notes"); NotesEditor(markdown: $notes, height: 160)
                     if !item.otherAttachments.isEmpty {
                         SectionLabel("Files")
                         ForEach(item.otherAttachments, id: \.self) { name in
@@ -62,6 +66,10 @@ struct ItemDetailView: View {
         }
         .frame(minWidth: 760, idealWidth: 980, minHeight: 520, idealHeight: 760)
         .background(Theme.pane)
+        .onAppear { title = item.title; notes = item.notes; loadedEdits = true }
+        .onChange(of: title) { _, _ in scheduleSave() }
+        .onChange(of: notes) { _, _ in scheduleSave() }
+        .onDisappear { saveNow() }
     }
 
     /// The quote without picture placeholders: every picture is shown below at the chosen zoom instead.
@@ -80,5 +88,18 @@ struct ItemDetailView: View {
                 else { ScrollView([.horizontal, .vertical]) { Image(nsImage: img).resizable().frame(width: px.width * scale, height: px.height * scale) }.frame(maxHeight: 560) }
             }
         }.overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.hairline))
+    }
+
+    private func scheduleSave() {
+        guard loadedEdits else { return }
+        saveTask?.cancel()
+        saveTask = Task { try? await Task.sleep(for: .milliseconds(500)); if !Task.isCancelled { saveNow() } }
+    }
+
+    private func saveNow() {
+        saveTask?.cancel()
+        guard loadedEdits, var it = lib.item(id), it.title != title || it.notes != notes else { return }
+        it.title = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? it.title : title; it.notes = notes
+        lib.update(it)
     }
 }

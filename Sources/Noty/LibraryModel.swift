@@ -113,12 +113,54 @@ final class LibraryModel {
     }
 
     func update(_ item: Item) {
+        let wasDone = items.first { $0.id == item.id }?.done
         guard let saved = run("Save the item", { try store.save(item) }) else { return }
+        // A finished item leaves the list being viewed (every scope but Done), so its details must not stay open on the right.
+        if let wasDone, wasDone != saved.done, selectedID == saved.id { selectedID = nil }
         if let i = items.firstIndex(where: { $0.id == saved.id }) { items[i] = saved }
         ensureCategoryKnown(saved.path)
     }
 
     func toggleDone(_ id: String) { if var it = item(id) { it.done.toggle(); update(it) } }
+
+    /// Stores a picture or file with the item. Images become PNG so they show up as pictures; anything else is copied as it is.
+    @discardableResult
+    func attach(_ data: Data, ext: String, to id: String) -> Bool {
+        guard var it = item(id) else { return false }
+        var n = it.attachments.count + 1
+        while it.attachments.contains(where: { $0.hasPrefix("\(id.prefix(8).lowercased())-\(n).") }) { n += 1 }
+        guard let name = run("Attach the file", { try store.saveAttachment(data, itemID: id, index: n, ext: ext) }) else { return false }
+        it.attachments.append(name); update(it)
+        return true
+    }
+
+    func attach(fileAt url: URL, to id: String) {
+        let ext = url.pathExtension.lowercased()
+        guard let data = try? Data(contentsOf: url) else { AppModel.shared.show("Couldn't read \(url.lastPathComponent).", error: true); return }
+        if ["png", "jpg", "jpeg", "heic", "gif", "tiff", "bmp"].contains(ext), let img = NSImage(data: data), let png = Snip.png(img) { attach(png, ext: "png", to: id) }
+        else { attach(data, ext: ext, to: id) }
+    }
+
+    func removeAttachment(_ name: String, from id: String) {
+        guard var it = item(id) else { return }
+        it.attachments.removeAll { $0 == name }
+        update(it)
+        try? FileManager.default.trashItem(at: store.attachmentURL(name), resultingItemURL: nil)
+    }
+
+    /// Picks an area of the screen and attaches it to the item, or to a new task in the current category when there is no item.
+    func snip(into id: String?) {
+        Task { @MainActor in
+            guard let data = await Snip.captureAreaHidingNoty() else { return }
+            var target = id
+            if target == nil {
+                var path = [NotyStore.inbox]
+                if case .category(let p) = scope { path = p }
+                target = add(Item(title: "Screenshot \(Date().formatted(date: .abbreviated, time: .shortened))", path: path))?.id
+            }
+            if let t = target, attach(data, ext: "png", to: t) { selectedID = t; AppModel.shared.show("Screenshot added.") }
+        }
+    }
 
     func move(_ id: String, to path: [String]) { if var it = item(id) { it.path = path; update(it) } }
 

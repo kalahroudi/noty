@@ -68,7 +68,7 @@ PLIST
 if [ "${SIGN_IDENTITY:--}" = "-" ]; then
   # Ad-hoc signatures normally identify an app by the hash of its code, which changes on every build, so macOS forgets granted
   # permissions (Accessibility, Automation) after each update. Pinning the designated requirement to the bundle id keeps one stable identity.
-  SIGN_FLAGS=(--force --sign -)
+  SIGN_FLAGS=(--force --sign - --identifier com.kalahroudi.noty-mcp --requirements '=designated => identifier "com.kalahroudi.noty-mcp"')
   APP_SIGN_FLAGS=(--force --sign - --requirements '=designated => identifier "com.kalahroudi.noty"')
 else
   SIGN_FLAGS=(--force --timestamp --options runtime --entitlements scripts/Noty.entitlements --sign "$SIGN_IDENTITY")

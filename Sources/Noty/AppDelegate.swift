@@ -34,6 +34,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
         Hotkey.shared.onPress = { CaptureController.shared.captureSelection() }
         Hotkey.shared.register(Prefs.shared.hotkey)
+        Hotkey.shared.handlers[Hotkey.stackID] = { StackController.shared.toggle() }
+        Prefs.shared.registerStackHotkey()
         NSApp.servicesProvider = ServicesProvider()
         NSUpdateDynamicServices()
         Task { await model.refresh() }
@@ -55,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
             let m = NSMenu()
             m.addItem(withTitle: "Open Noty", action: #selector(openManager), keyEquivalent: "").target = self
             m.addItem(withTitle: "Capture selection  \(Prefs.shared.hotkey.label)", action: #selector(captureSelection), keyEquivalent: "").target = self
+            m.addItem(withTitle: "Open Stack  \(Prefs.shared.stackHotkey.label)", action: #selector(openStack), keyEquivalent: "").target = self
             m.addItem(withTitle: "Capture screen area", action: #selector(snipScreen), keyEquivalent: "").target = self
             m.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
             m.addItem(.separator())
@@ -139,6 +142,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
             }
         }
     }
+
+    @objc func openStack() { StackController.shared.toggle() }
 
     @objc func snipScreen() { LibraryModel.shared.snip(into: nil) }
 

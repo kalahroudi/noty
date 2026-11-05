@@ -25,6 +25,8 @@ struct LibraryPane: View {
                 PaneHeader(title: lib.query.isEmpty ? lib.scope.title : "Search", subtitle: subtitle(items.count)) {
                     HStack(spacing: 8) {
                         SearchBox(prompt: "Search everything", text: Bindable(lib).query).frame(width: 160)
+                        Button { StackController.shared.toggle() } label: { Label("Stack", systemImage: "rectangle.stack") }.buttonStyle(Pill()).fixedSize()
+                            .help("Your open tasks one at a time, with the arrow keys (\(Prefs.shared.stackHotkey.label))")
                         Button { lib.snip(into: nil) } label: { Label("Snip", systemImage: "viewfinder") }.buttonStyle(Pill()).fixedSize()
                             .help("Drag over an area of the screen. It is saved as a new task you can edit.")
                         Button { request = AgentRequest(items: Array(items.prefix(25))) } label: { Label("Ask agent", systemImage: "sparkles") }

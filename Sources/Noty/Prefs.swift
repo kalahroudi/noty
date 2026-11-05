@@ -15,6 +15,13 @@ enum HotkeyChoice: String, CaseIterable {
     /// Carbon modifier mask: cmdKey 0x100, optionKey 0x800, controlKey 0x1000.
     var modifiers: UInt32 { switch self { case .optCmdN, .optCmdJ: 0x100 | 0x800; case .ctrlOptN: 0x1000 | 0x800 } }
 }
+/// Global shortcut that opens the Stack. Carbon key code K=40.
+enum StackHotkeyChoice: String, CaseIterable {
+    case optCmdK, ctrlOptK
+    var label: String { self == .optCmdK ? "⌥⌘K" : "⌃⌥K" }
+    var keyCode: UInt32 { 40 }
+    var modifiers: UInt32 { self == .optCmdK ? 0x100 | 0x800 : 0x1000 | 0x800 }
+}
 enum UpdateChannel: String, CaseIterable { case releases, main
     var label: String { self == .releases ? "Releases" : "Main branch" }
 }
@@ -34,6 +41,8 @@ final class Prefs {
     var autoCheckUpdates: Bool { didSet { d.set(autoCheckUpdates, forKey: "autoCheckUpdates") } }
     var sidebarCollapsed: Bool { didSet { d.set(sidebarCollapsed, forKey: "sidebarCollapsed") } }
     var hotkey: HotkeyChoice { didSet { d.set(hotkey.rawValue, forKey: "hotkey"); Hotkey.shared.register(hotkey) } }
+    var stackHotkey: StackHotkeyChoice { didSet { d.set(stackHotkey.rawValue, forKey: "stackHotkey"); registerStackHotkey() } }
+    func registerStackHotkey() { Hotkey.shared.register(id: Hotkey.stackID, keyCode: stackHotkey.keyCode, modifiers: stackHotkey.modifiers, label: stackHotkey.label) }
     /// Off: a capture goes straight to the category last used for that app, with no questions.
     var askEveryTime: Bool { didSet { d.set(askEveryTime, forKey: "askEveryTime") } }
 
@@ -54,13 +63,14 @@ final class Prefs {
     private(set) var launchAtLoginError: String?
 
     private init() {
-        d.register(defaults: ["notify": true, "refreshSeconds": 5, "showDockIcon": true, "autoCheckUpdates": true, "askEveryTime": true, "hotkey": "optCmdN"])
+        d.register(defaults: ["notify": true, "refreshSeconds": 5, "showDockIcon": true, "autoCheckUpdates": true, "askEveryTime": true, "hotkey": "optCmdN", "stackHotkey": "optCmdK"])
         theme = ThemeChoice(rawValue: d.string(forKey: "theme") ?? "") ?? .system
         showDockIcon = d.bool(forKey: "showDockIcon")
         notify = d.bool(forKey: "notify")
         refreshSeconds = d.integer(forKey: "refreshSeconds")
         sidebarCollapsed = d.bool(forKey: "sidebarCollapsed")
         hotkey = HotkeyChoice(rawValue: d.string(forKey: "hotkey") ?? "") ?? .optCmdN
+        stackHotkey = StackHotkeyChoice(rawValue: d.string(forKey: "stackHotkey") ?? "") ?? .optCmdK
         askEveryTime = d.bool(forKey: "askEveryTime")
         autoCheckUpdates = d.bool(forKey: "autoCheckUpdates")
         updateChannel = UpdateChannel(rawValue: d.string(forKey: "updateChannel") ?? "") ?? .releases

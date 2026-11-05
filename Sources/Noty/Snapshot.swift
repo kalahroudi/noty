@@ -40,7 +40,13 @@ enum SnapshotMode {
         func detail() -> Shot {
             Shot(name: "detail", dark: false, size: CGSize(width: 980, height: 760)) { AnyView(ItemDetailView(id: LibraryModel.shared.items[0].id)) }
         }
-        return [detail(), pop(), pop(dark: true), capture(), capture(dark: true), manager(.library), manager(.library, dark: true), manager(.settings), manager(.settings, agents: true), manager(.help)]
+        func stack(zoomed: Bool = false, dark: Bool = false) -> Shot {
+            Shot(name: "stack\(zoomed ? "-zoomed" : "")\(dark ? "-dark" : "")", dark: dark, size: CGSize(width: 720, height: 640)) {
+                let m = StackModel(); m.zoomed = zoomed
+                return AnyView(StackView(model: m).padding(40).background(Theme.sidebar))
+            }
+        }
+        return [stack(), stack(zoomed: true), stack(dark: true), detail(), pop(), pop(dark: true), capture(), capture(dark: true), manager(.library), manager(.library, dark: true), manager(.settings), manager(.settings, agents: true), manager(.help)]
     }
 
     @MainActor static func render(_ shot: Shot, to dir: String) async {

@@ -35,6 +35,8 @@ struct PopoverView: View {
                 Text(model.status).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
             }.layoutPriority(-1)
             Spacer(minLength: 4)
+            Button { AppDelegate.shared.closePopover(); StackController.shared.toggle() } label: { Image(systemName: "rectangle.stack").font(.system(size: 13)).frame(width: 14, height: 16) }
+                .buttonStyle(Pill()).help("Stack: your open tasks one at a time, with the arrow keys (\(Prefs.shared.stackHotkey.label))").accessibilityLabel("Open Stack")
             Button { AppDelegate.shared.closePopover(); lib.snip(into: nil) } label: { Image(systemName: "viewfinder").font(.system(size: 13)).frame(width: 14, height: 16) }
                 .buttonStyle(Pill()).help("Snip: drag over an area of the screen. It is saved as a new task.").accessibilityLabel("Snip a screen area")
             Button { CaptureController.shared.present(Captured()) } label: { Label("Capture", systemImage: "highlighter").font(.system(size: 12)).lineLimit(1).fixedSize() }

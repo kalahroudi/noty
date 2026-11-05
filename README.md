@@ -40,6 +40,7 @@ Never delete my items without asking me first.
 
 ## How it works
 
+- **Stack:** press `⌥⌘K` (changeable), use the menu bar popover, or the Stack button in the library. Your open items, any type, appear one card at a time. `←` `→` move through them, `Space` zooms into the details, `D` marks done, `N` adds a task, `/` searches, `T` toggles Today, `O` opens it in Noty, `Esc` closes.
 - **Capture:** select text, a picture, a PDF or a Word paragraph anywhere (mouse or `⇧`+arrows), press `⌥⌘N` (changeable). A small panel appears next to the pointer: pick a type and a category with the arrow keys, press `↩`. `⌘↩` adds and opens "Ask agent". Also available as right-click → Services → Add to Noty. Formatting is kept: headings, bold/italic, lists, links and tables become Markdown, pictures and PDFs are saved with the item, and the original HTML is kept so you can paste it back with formatting. Needs the Accessibility permission for the shortcut.
 - **Library:** workspaces and categories are folders; every item is a Markdown file with its highlighted text, notes, tags and source link. Open them in any editor.
 - **Sync:** Settings → Sync moves the library to iCloud Drive or any folder (Dropbox, Syncthing, git). No server, no account. If two Macs edit the same item, the newer copy wins and the other is kept in `_history`.

@@ -21,26 +21,33 @@ struct Captured {
     var isEmpty: Bool { text.isEmpty && markdown.isEmpty && attachments.isEmpty }
 }
 
-/// The global shortcut (Carbon RegisterEventHotKey: needs no permission and costs nothing while idle).
+/// Global shortcuts (Carbon RegisterEventHotKey: needs no permission and costs nothing while idle). Each one has its own id.
 @MainActor
 final class Hotkey {
     static let shared = Hotkey()
-    private var ref: EventHotKeyRef?
+    static let captureID: UInt32 = 1, stackID: UInt32 = 2
+    private var refs: [UInt32: EventHotKeyRef] = [:]
     private var handler: EventHandlerRef?
-    var onPress: (() -> Void)?
+    var handlers: [UInt32: () -> Void] = [:]
+    var onPress: (() -> Void)? { get { handlers[Self.captureID] } set { handlers[Self.captureID] = newValue } }
 
-    func register(_ choice: HotkeyChoice) {
-        if let ref { UnregisterEventHotKey(ref); self.ref = nil }
+    func register(_ choice: HotkeyChoice) { register(id: Self.captureID, keyCode: choice.keyCode, modifiers: choice.modifiers, label: choice.label) }
+
+    func register(id: UInt32, keyCode: UInt32, modifiers: UInt32, label: String) {
+        if let old = refs[id] { UnregisterEventHotKey(old); refs[id] = nil }
         if handler == nil {
             var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-            InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
-                DispatchQueue.main.async { MainActor.assumeIsolated { Hotkey.shared.onPress?() } }
+            InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
+                var hk = EventHotKeyID()
+                GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hk)
+                DispatchQueue.main.async { MainActor.assumeIsolated { Hotkey.shared.handlers[hk.id]?() } }
                 return noErr
             }, 1, &spec, nil, &handler)
         }
-        let id = EventHotKeyID(signature: OSType(0x4E4F5459), id: 1)   // 'NOTY'
-        let status = RegisterEventHotKey(choice.keyCode, choice.modifiers, id, GetApplicationEventTarget(), 0, &ref)
-        if status != noErr { AppLog.info("Could not register shortcut \(choice.label): \(status)") }
+        let hkID = EventHotKeyID(signature: OSType(0x4E4F5459), id: id)   // 'NOTY'
+        var ref: EventHotKeyRef?
+        let status = RegisterEventHotKey(keyCode, modifiers, hkID, GetApplicationEventTarget(), 0, &ref)
+        if status != noErr { AppLog.info("Could not register shortcut \(label): \(status)") } else { refs[id] = ref }
     }
 }
 

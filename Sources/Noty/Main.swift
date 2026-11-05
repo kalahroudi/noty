@@ -58,6 +58,7 @@ enum NotyMain {
             item("About Noty", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
             .separator(),
             item("Capture Selection", #selector(AppDelegate.captureSelection), "n", [.command, .option], target: delegate),
+            item("Open Stack", #selector(AppDelegate.openStack), "k", [.command, .option], target: delegate),
             item("Capture Screen Area", #selector(AppDelegate.snipScreen), "s", [.command, .option], target: delegate),
             .separator(),
             item("Settings…", #selector(AppDelegate.openSettings), ",", target: delegate),

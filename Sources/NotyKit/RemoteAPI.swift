@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import Foundation
+import AppKit
+import ImageIO
 
 public struct HTTPRequest: Sendable {
     public var method: String
@@ -17,7 +19,8 @@ public struct HTTPResponse: Sendable {
     public var status: Int
     public var contentType: String
     public var body: Data
-    public init(status: Int = 200, contentType: String = "application/json; charset=utf-8", body: Data = Data()) { self.status = status; self.contentType = contentType; self.body = body }
+    public var headers: [String: String]
+    public init(status: Int = 200, contentType: String = "application/json; charset=utf-8", body: Data = Data(), headers: [String: String] = [:]) { self.status = status; self.contentType = contentType; self.body = body; self.headers = headers }
 
     public static func json(_ v: Any, status: Int = 200) -> HTTPResponse {
         HTTPResponse(status: status, body: (try? JSONSerialization.data(withJSONObject: v, options: [.withoutEscapingSlashes])) ?? Data("{}".utf8))
@@ -25,16 +28,19 @@ public struct HTTPResponse: Sendable {
     public static func error(_ status: Int, _ message: String) -> HTTPResponse { .json(["error": message], status: status) }
 
     public func serialized() -> Data {
-        let reason = [200: "OK", 400: "Bad Request", 403: "Forbidden", 404: "Not Found", 405: "Method Not Allowed", 413: "Payload Too Large", 500: "Internal Server Error"][status] ?? "OK"
+        let reason = [200: "OK", 400: "Bad Request", 403: "Forbidden", 404: "Not Found", 405: "Method Not Allowed", 413: "Payload Too Large", 415: "Unsupported Media Type", 500: "Internal Server Error"][status] ?? "OK"
         var head = "HTTP/1.1 \(status) \(reason)\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.count)\r\nCache-Control: no-store\r\n"
-        head += "X-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n"
+        head += "X-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n"
+        for (k, v) in headers { head += "\(k): \(v)\r\n" }
+        head += "\r\n"
         return Data(head.utf8) + body
     }
 }
 
 public enum HTTPParser {
     public enum Result { case needMore, bad, tooLarge, request(HTTPRequest) }
-    public static let maxBody = 1_000_000
+    /// Large enough for a phone photo or a PDF; endpoints that are not uploads refuse more than `maxJSON`.
+    public static let maxBody = 40_000_000
 
     public static func parse(_ data: Data) -> Result {
         let sep = Data("\r\n\r\n".utf8)
@@ -66,6 +72,7 @@ public enum HTTPParser {
 /// The JSON API behind the remote web app. Pure: a request in, a response out, so it is unit tested without a socket.
 /// Safety: reachable only through Tailscale Serve (which adds the signed-in user's identity) or from this Mac, never from another website.
 public struct RemoteAPI: Sendable {
+    public static let maxJSON = 1_000_000
     public let store: NotyStore
     public var page: String
     public init(store: NotyStore, page: String = "") { self.store = store; self.page = page }
@@ -88,7 +95,13 @@ public struct RemoteAPI: Sendable {
         do {
             let get = req.method == "GET", post = req.method == "POST"
             guard get || post else { return .error(405, "Method not allowed.") }
-            if get && seg.isEmpty { return HTTPResponse(contentType: "text/html; charset=utf-8", body: Data(page.utf8)) }
+            let upload = post && seg.count == 4 && seg[3] == "attach"
+            if !upload && req.body.count > Self.maxJSON { return .error(413, "Too large.") }
+            if get && seg.isEmpty {
+                return HTTPResponse(contentType: "text/html; charset=utf-8", body: Data(page.utf8),
+                                    headers: ["Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"])
+            }
+            if get && seg.count == 3 && seg[0] == "api" && seg[1] == "attachments" { return attachment(seg[2]) }
             if seg.count >= 2, seg[0] == "api", seg[1] == "items" {
                 if seg.count == 2 { return get ? list(req) : try add(req) }
                 if seg.count == 3 && get { return try detail(seg[2]) }
@@ -100,6 +113,8 @@ public struct RemoteAPI: Sendable {
 
     private func summary(_ it: Item) -> [String: Any] {
         var d: [String: Any] = ["id": it.id, "title": it.title, "kind": it.kind.rawValue, "done": it.done, "today": it.today, "path": it.path.joined(separator: " › ")]
+        let files = it.attachments.filter { !$0.lowercased().hasSuffix(".html") }.count
+        if files > 0 { d["attachments"] = files }
         if !it.reminders.filter({ !$0.done }).isEmpty { d["reminders"] = it.reminders.filter { !$0.done }.count }
         return d
     }
@@ -126,6 +141,11 @@ public struct RemoteAPI: Sendable {
         guard let it = store.item(id: id) else { return .error(404, "No such item.") }
         var d = summary(it)
         d["quote"] = it.quote; d["notes"] = it.notes; d["tags"] = it.tags
+        d["images"] = it.imageAttachments
+        d["files"] = it.otherAttachments.map { name -> [String: Any] in
+            let size = (try? FileManager.default.attributesOfItem(atPath: store.attachmentURL(name).path)[.size] as? Int) ?? 0
+            return ["name": name, "size": size ?? 0]
+        }
         if let u = it.sourceURL { d["sourceURL"] = u }
         if let t = it.sourceTitle { d["sourceTitle"] = t }
         d["created"] = ISO8601DateFormatter().string(from: it.created)
@@ -147,11 +167,66 @@ public struct RemoteAPI: Sendable {
         guard var it = store.item(id: id) else { return .error(404, "No such item.") }
         let b = body(req)
         switch action {
+        case "attach": return try attach(it, req)
+        case "detach":
+            guard let name = b["name"] as? String, it.attachments.contains(name) else { return .error(404, "No such attachment.") }
+            it.attachments.removeAll { $0 == name }
+            let saved = try store.save(it)
+            try? FileManager.default.trashItem(at: store.attachmentURL(name), resultingItemURL: nil)
+            return .json(summary(saved))
         case "done": it.done = b["done"] as? Bool ?? !it.done
         case "today": it.today = b["today"] as? Bool ?? !it.today
         case "notes": it.notes = String((b["notes"] as? String ?? "").prefix(100_000))
         default: return .error(404, "Not found.")
         }
         return .json(summary(try store.save(it)))
+    }
+
+    // MARK: Attachments
+
+    private static let imageTypes: Set<String> = ["png", "jpg", "jpeg", "heic", "heif", "gif", "tiff", "tif", "bmp", "webp"]
+    private static let types = ["png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp", "pdf": "application/pdf",
+                                "txt": "text/plain; charset=utf-8", "md": "text/plain; charset=utf-8", "csv": "text/plain; charset=utf-8", "json": "text/plain; charset=utf-8",
+                                "mp4": "video/mp4", "mov": "video/quicktime", "mp3": "audio/mpeg", "m4a": "audio/mp4", "wav": "audio/wav"]
+
+    /// Serves a file from the library's `_attachments` folder. Only types a browser can show safely are shown inline; the rest (including HTML and SVG) download.
+    private func attachment(_ name: String) -> HTTPResponse {
+        let url = store.attachmentURL(name)
+        guard url.lastPathComponent == name, !name.hasPrefix("."), let data = try? Data(contentsOf: url) else { return .error(404, "No such file.") }
+        let ext = url.pathExtension.lowercased()
+        if let type = Self.types[ext] { return HTTPResponse(contentType: type, body: data, headers: ["Content-Security-Policy": "sandbox"]) }
+        return HTTPResponse(contentType: "application/octet-stream", body: data, headers: ["Content-Disposition": "attachment; filename=\"\(name.replacingOccurrences(of: "\"", with: ""))\""])
+    }
+
+    /// The upload is the raw file as the request body; `?name=` carries the original file name. Pictures become PNG (as in the app), scaled to a sensible size.
+    private func attach(_ item: Item, _ req: HTTPRequest) throws -> HTTPResponse {
+        guard !req.body.isEmpty else { return .error(400, "Empty file.") }
+        var data = req.body
+        var ext = ((req.query["name"] ?? "") as NSString).pathExtension.lowercased()
+        if ext.isEmpty, let ct = req.headers["content-type"], let sub = ct.split(separator: "/").last { ext = String(sub.split(separator: ";").first ?? "").lowercased() }
+        if Self.imageTypes.contains(ext) || (req.headers["content-type"] ?? "").hasPrefix("image/") {
+            guard let png = Self.pngData(from: data) else { return .error(415, "That picture could not be read.") }
+            data = png; ext = "png"
+        }
+        let saved = try store.addAttachment(data, ext: ext, to: item)
+        return .json(summary(saved))
+    }
+
+    static func pngData(from data: Data, maxPixels: Int = 2560) -> Data? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let opts: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: maxPixels]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { return nil }
+        return NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:])
+    }
+}
+
+public extension NotyStore {
+    /// Stores a file next to the library and lists it on the item.
+    func addAttachment(_ data: Data, ext: String, to item: Item) throws -> Item {
+        var it = item
+        var n = it.attachments.count + 1
+        while it.attachments.contains(where: { $0.hasPrefix("\(it.id.prefix(8).lowercased())-\(n).") }) { n += 1 }
+        it.attachments.append(try saveAttachment(data, itemID: it.id, index: n, ext: ext))
+        return try save(it)
     }
 }

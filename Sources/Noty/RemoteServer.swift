@@ -29,15 +29,17 @@ final class RemoteServer: @unchecked Sendable {
     private func accept(_ c: NWConnection) {
         c.start(queue: queue)
         c.stateUpdateHandler = { if case .failed = $0 { c.cancel() } }
-        read(c, Data())
-        queue.asyncAfter(deadline: .now() + 15) { c.cancel() }          // a client that never finishes its request is dropped
+        read(c, Buffer())
+        queue.asyncAfter(deadline: .now() + 180) { c.cancel() }         // a client that never finishes its request is dropped
     }
 
-    private func read(_ c: NWConnection, _ so_far: Data) {
-        c.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, done, err in
+    private final class Buffer { var data = Data() }
+
+    private func read(_ c: NWConnection, _ buf: Buffer) {
+        c.receive(minimumIncompleteLength: 1, maximumLength: 1_048_576) { [weak self] data, _, done, err in
             guard let self else { c.cancel(); return }
-            var buf = so_far; if let data { buf.append(data) }
-            switch HTTPParser.parse(buf) {
+            if let data { buf.data.append(data) }
+            switch HTTPParser.parse(buf.data) {
             case .needMore: if done || err != nil { c.cancel() } else { self.read(c, buf) }
             case .bad: self.send(c, .error(400, "Bad request."))
             case .tooLarge: self.send(c, .error(413, "Too large."))

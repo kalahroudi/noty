@@ -333,4 +333,36 @@ final class KitTests: XCTestCase {
         XCTAssertEqual(found["total"] as? Int, 1)
         XCTAssertEqual(api.handle(req("GET", "/api/items/nope")).status, 404)
     }
+
+    func testRemoteAttachmentsUploadServeAndRemove() throws {
+        let root = tmp(); defer { try? FileManager.default.removeItem(at: root) }
+        let s = NotyStore(root: root); try s.prepare()
+        let api = RemoteAPI(store: s, page: "")
+        let item = try s.save(Item(title: "pics"))
+        func req(_ m: String, _ p: String, _ q: [String: String] = [:], headers: [String: String] = [:], body: Data = Data()) -> HTTPRequest {
+            HTTPRequest(method: m, path: p, query: q, headers: ["host": "localhost:47653", "x-noty": "1"].merging(headers) { a, _ in a }, body: body)
+        }
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 4, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        let jpeg = rep.representation(using: .jpeg, properties: [:])!
+        // a photo arrives as JPEG and is kept as PNG, like a snip in the app
+        XCTAssertEqual(api.handle(req("POST", "/api/items/\(item.id)/attach", ["name": "IMG_1.jpg"], headers: ["content-type": "image/jpeg"], body: jpeg)).status, 200)
+        XCTAssertEqual(api.handle(req("POST", "/api/items/\(item.id)/attach", ["name": "a.pdf"], body: Data("%PDF-1.4".utf8))).status, 200)
+        XCTAssertEqual(api.handle(req("POST", "/api/items/\(item.id)/attach", ["name": "page.html"], body: Data("<script>alert(1)</script>".utf8))).status, 200)
+        XCTAssertEqual(api.handle(req("POST", "/api/items/\(item.id)/attach", ["name": "bad.png"], body: Data("not a picture".utf8))).status, 415)
+        let saved = s.item(id: item.id)!
+        XCTAssertEqual(saved.imageAttachments.count, 1); XCTAssertTrue(saved.imageAttachments[0].hasSuffix(".png"))
+        let png = api.handle(req("GET", "/api/attachments/\(saved.imageAttachments[0])"))
+        XCTAssertEqual(png.contentType, "image/png"); XCTAssertEqual(png.body.prefix(4), Data([0x89, 0x50, 0x4E, 0x47]))
+        let html = saved.attachments.first { $0.hasSuffix(".html") }!
+        let served = api.handle(req("GET", "/api/attachments/\(html)"))
+        XCTAssertEqual(served.contentType, "application/octet-stream")                                          // never rendered inline
+        XCTAssertNotNil(served.headers["Content-Disposition"])
+        XCTAssertEqual(api.handle(req("GET", "/api/attachments/..%2Fitem")).status, 404)
+        let d = try JSONSerialization.jsonObject(with: api.handle(req("GET", "/api/items/\(item.id)")).body) as! [String: Any]
+        XCTAssertEqual((d["images"] as! [String]).count, 1); XCTAssertEqual((d["files"] as! [[String: Any]]).count, 1)
+        let pdf = saved.otherAttachments[0]
+        XCTAssertEqual(api.handle(req("POST", "/api/items/\(item.id)/detach", body: Data(#"{"name":"\#(pdf)"}"#.utf8))).status, 200)
+        XCTAssertFalse(s.item(id: item.id)!.attachments.contains(pdf))
+        XCTAssertEqual(api.handle(req("POST", "/api/items/\(item.id)/notes", body: Data(repeating: 65, count: 1_100_000))).status, 413)   // only uploads may be large
+    }
 }

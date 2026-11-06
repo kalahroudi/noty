@@ -9,7 +9,7 @@ import NotyKit
 struct SettingsPane: View {
     let prefs = Prefs.shared
     @State private var tab: Tab
-    enum Tab: Hashable { case general, sync, updates, agents, about }
+    enum Tab: Hashable { case general, sync, remote, updates, agents, about }
     init(initialTab: Tab = .general) { _tab = State(initialValue: initialTab) }
 
     var body: some View {
@@ -17,13 +17,14 @@ struct SettingsPane: View {
             PaneHeader(title: "Settings") {
                 EmptyView()
             } tabs: {
-                TabBar(tabs: [(Tab.general, "General"), (Tab.sync, "Sync"), (Tab.updates, "Updates"), (Tab.agents, "Agents (MCP)"), (Tab.about, "About")], selection: $tab)
+                TabBar(tabs: [(Tab.general, "General"), (Tab.sync, "Sync"), (Tab.remote, "Remote"), (Tab.updates, "Updates"), (Tab.agents, "Agents (MCP)"), (Tab.about, "About")], selection: $tab)
             }
             ScrollView {
                 Group {
                     switch tab {
                     case .general: general
                     case .sync: SyncView()
+                    case .remote: RemoteView()
                     case .updates: UpdatesView()
                     case .agents: AgentsView()
                     case .about: about

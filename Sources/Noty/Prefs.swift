@@ -45,6 +45,8 @@ final class Prefs {
     var notify: Bool { didSet { d.set(notify, forKey: "notify") } }
     var refreshSeconds: Int { didSet { d.set(refreshSeconds, forKey: "refreshSeconds") } }
     var updateChannel: UpdateChannel { didSet { d.set(updateChannel.rawValue, forKey: "updateChannel") } }
+    /// Publish the library as a web app on your tailnet (see RemoteController).
+    var remoteEnabled: Bool { didSet { d.set(remoteEnabled, forKey: "remoteEnabled") } }
     var autoCheckUpdates: Bool { didSet { d.set(autoCheckUpdates, forKey: "autoCheckUpdates") } }
     var sidebarCollapsed: Bool { didSet { d.set(sidebarCollapsed, forKey: "sidebarCollapsed") } }
     var hotkey: HotkeyChoice { didSet { d.set(hotkey.rawValue, forKey: "hotkey"); Hotkey.shared.register(hotkey) } }
@@ -82,6 +84,7 @@ final class Prefs {
         stackHotkey = StackHotkeyChoice(rawValue: d.string(forKey: "stackHotkey") ?? "") ?? .optCmdK
         agendaHotkey = AgendaHotkeyChoice(rawValue: d.string(forKey: "agendaHotkey") ?? "") ?? .optCmdA
         askEveryTime = d.bool(forKey: "askEveryTime")
+        remoteEnabled = d.bool(forKey: "remoteEnabled")
         autoCheckUpdates = d.bool(forKey: "autoCheckUpdates")
         updateChannel = UpdateChannel(rawValue: d.string(forKey: "updateChannel") ?? "") ?? .releases
         // First run: opt in to launch at login. After that the user's choice always wins.

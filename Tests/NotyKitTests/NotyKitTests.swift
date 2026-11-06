@@ -291,4 +291,46 @@ final class KitTests: XCTestCase {
         let p = AgentPrompt.build(.skill, items: [Item(id: "abc", title: "T", path: ["Work"])])
         XCTAssertTrue(p.contains("abc")); XCTAssertTrue(p.contains("propose_file")); XCTAssertTrue(p.contains("Never delete"))
     }
+
+    func testTailscaleStatusParsing() {
+        let json = #"{"BackendState":"Running","Self":{"DNSName":"my-mac.tail1.ts.net."},"CertDomains":["my-mac.tail1.ts.net"]}"#
+        let st = Tailscale.parseStatus(Data(json.utf8))
+        XCTAssertEqual(st, Tailscale.Status(state: "Running", dnsName: "my-mac.tail1.ts.net", httpsEnabled: true))
+        XCTAssertEqual(Tailscale.url(for: "a.ts.net"), "https://a.ts.net:8443")
+        XCTAssertFalse(Tailscale.parseStatus(Data(#"{"BackendState":"NeedsLogin"}"#.utf8))!.running)
+        XCTAssertTrue(Tailscale.isServing(Data(#"{"Web":{"a.ts.net:8443":{}}}"#.utf8)))
+        XCTAssertFalse(Tailscale.isServing(Data("{}".utf8)))
+    }
+
+    func testHTTPParserWaitsForTheBody() {
+        let head = "POST /api/items?x=a%20b HTTP/1.1\r\nHost: h\r\nContent-Length: 4\r\n\r\n"
+        if case .needMore = HTTPParser.parse(Data((head + "ab").utf8)) {} else { XCTFail("should wait") }
+        guard case .request(let r) = HTTPParser.parse(Data((head + "abcd").utf8)) else { return XCTFail("should parse") }
+        XCTAssertEqual(r.method, "POST"); XCTAssertEqual(r.path, "/api/items"); XCTAssertEqual(r.query["x"], "a b"); XCTAssertEqual(String(decoding: r.body, as: UTF8.self), "abcd")
+    }
+
+    func testRemoteAPIRefusesStrangersAndWorks() throws {
+        let root = tmp(); defer { try? FileManager.default.removeItem(at: root) }
+        let s = NotyStore(root: root); try s.prepare()
+        let api = RemoteAPI(store: s, page: "<html>")
+        func req(_ m: String, _ p: String, host: String = "127.0.0.1:47653", _ extra: [String: String] = ["x-noty": "1"], body: String = "") -> HTTPRequest {
+            HTTPRequest(method: m, path: p, headers: ["host": host].merging(extra) { a, _ in a }, body: Data(body.utf8))
+        }
+        XCTAssertEqual(api.handle(req("GET", "/", host: "evil.example.com")).status, 403)                      // DNS rebinding
+        XCTAssertEqual(api.handle(req("GET", "/", host: "mac.tail1.ts.net")).status, 403)                       // no Tailscale identity
+        XCTAssertEqual(api.handle(req("GET", "/", host: "mac.tail1.ts.net", ["tailscale-user-login": "me@x"])).status, 200)
+        XCTAssertEqual(api.handle(req("POST", "/api/items", ["origin": "https://evil.com"], body: #"{"title":"x"}"#)).status, 403)  // cross-site
+        XCTAssertEqual(api.handle(req("POST", "/api/items", [:], body: #"{"title":"x"}"#)).status, 403)         // no X-Noty header
+        XCTAssertEqual(api.handle(req("POST", "/api/items", body: "{}")).status, 400)
+        let added = api.handle(req("POST", "/api/items", body: #"{"title":"Call Sam"}"#))
+        XCTAssertEqual(added.status, 200)
+        let id = (try JSONSerialization.jsonObject(with: added.body) as! [String: Any])["id"] as! String
+        XCTAssertEqual(api.handle(req("POST", "/api/items/\(id)/done", body: #"{"done":true}"#)).status, 200)
+        XCTAssertEqual(s.item(id: id)?.done, true)
+        XCTAssertEqual(api.handle(req("POST", "/api/items/\(id)/notes", body: #"{"notes":"hi"}"#)).status, 200)
+        XCTAssertEqual(s.item(id: id)?.notes, "hi")
+        let found = try JSONSerialization.jsonObject(with: api.handle({ var r = req("GET", "/api/items"); r.query = ["q": "sam"]; return r }()).body) as! [String: Any]
+        XCTAssertEqual(found["total"] as? Int, 1)
+        XCTAssertEqual(api.handle(req("GET", "/api/items/nope")).status, 404)
+    }
 }

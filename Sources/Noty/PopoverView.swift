@@ -31,9 +31,9 @@ struct PopoverView: View {
         HStack(spacing: 10) {
             Image(nsImage: AppIcon.image(size: 34)).resizable().frame(width: 34, height: 34)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Noty").font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                Text("Noty").font(.system(size: 15, weight: .semibold)).lineLimit(1).fixedSize()
                 Text(model.status).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
-            }.layoutPriority(-1)
+            }
             Spacer(minLength: 4)
             Button { AppDelegate.shared.closePopover(); AgendaController.shared.toggle() } label: { Image(systemName: "calendar").font(.system(size: 13)).frame(width: 14, height: 16) }
                 .buttonStyle(Pill()).help("Agenda: reminders and calendar for today, tomorrow and the week (\(Prefs.shared.agendaHotkey.label))").accessibilityLabel("Open Agenda")
@@ -41,8 +41,8 @@ struct PopoverView: View {
                 .buttonStyle(Pill()).help("Stack: your open tasks one at a time, with the arrow keys (\(Prefs.shared.stackHotkey.label))").accessibilityLabel("Open Stack")
             Button { AppDelegate.shared.closePopover(); lib.snip(into: nil) } label: { Image(systemName: "viewfinder").font(.system(size: 13)).frame(width: 14, height: 16) }
                 .buttonStyle(Pill()).help("Snip: drag over an area of the screen. It is saved as a new task.").accessibilityLabel("Snip a screen area")
-            Button { CaptureController.shared.present(Captured()) } label: { Label("Capture", systemImage: "highlighter").font(.system(size: 12)).lineLimit(1).fixedSize() }
-                .buttonStyle(Pill()).help("Opens the capture panel. Select text in another app and press \(Prefs.shared.hotkey.label) to capture it.")
+            Button { CaptureController.shared.present(Captured()) } label: { Image(systemName: "highlighter").font(.system(size: 13)).frame(width: 14, height: 16) }
+                .buttonStyle(Pill()).accessibilityLabel("Capture").help("Opens the capture panel. Select text in another app and press \(Prefs.shared.hotkey.label) to capture it.")
         }
     }
 

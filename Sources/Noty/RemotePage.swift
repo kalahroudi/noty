@@ -26,12 +26,20 @@ button{font:inherit;color:inherit;cursor:pointer}
 .chk{width:26px;height:26px;border-radius:7px;border:2px solid var(--mute);background:none;flex:none;padding:0;color:var(--accent-ink);font-size:15px}
 .done .chk{background:var(--accent);border-color:var(--accent)}
 .empty{text-align:center;color:var(--mute);padding:40px 0}
-#sheet{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-end}
-#sheet.on{display:flex}#sheet>div{background:var(--bg);width:100%;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:18px 16px 28px;max-width:640px;margin:0 auto}
+#sheet,#fsheet{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-end}
+#sheet.on,#fsheet.on{display:flex}#sheet>div,#fsheet>div{background:var(--bg);width:100%;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:18px 16px 28px;max-width:640px;margin:0 auto}
 .sec{font-size:11.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--mute);margin:16px 0 6px}
 .btns{display:flex;gap:8px;margin-top:16px}.btns button,.pill{flex:1;padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--card)}
 .btns .p,.pill.p{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
 .pill{flex:none;padding:8px 13px;font-size:14px}
+.srow{display:flex;gap:8px;align-items:center}.srow input{flex:1;width:auto}.srow select{flex:none;max-width:42%}
+select{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 8px}
+.fbtn{flex:none;padding:10px 13px;border-radius:10px;border:1px solid var(--line);background:var(--card)}.fbtn.on{border-color:var(--accent)}
+.badge{display:inline-block;min-width:18px;padding:0 5px;margin-left:5px;border-radius:9px;background:var(--accent);color:var(--accent-ink);font-size:12px;font-weight:600;text-align:center}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.chip{font-size:13px;padding:4px 10px;border-radius:999px;border:1px solid var(--accent);background:var(--fill)}
+.fl{max-height:220px;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:10px;margin-top:8px;padding:4px}
+.fl label{display:flex;align-items:center;gap:10px;padding:7px 8px;font-size:15px}.fl label span{flex:1;min-width:0;overflow-wrap:anywhere}.fl input{width:auto;flex:none;margin:0;transform:scale(1.2)}
+.fl .sec{margin:8px 8px 2px}.opts{display:flex;gap:6px;flex-wrap:wrap}.opts button{flex:none;font-size:14px;padding:7px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card)}.opts button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
 #err{color:var(--danger);font-size:13px;min-height:18px}
 /* rendered markdown */
 .md{font-size:var(--base);overflow-wrap:anywhere}.md>*{margin:0 0 8px}.md h1,.md h2,.md h3,.md h4{margin:10px 0 6px;line-height:1.25}.md h1{font-size:1.5em}.md h2{font-size:1.3em}.md h3{font-size:1.15em}.md h4,.md h5,.md h6{font-size:1em}
@@ -56,10 +64,11 @@ mark{background:rgba(245,197,24,.42);color:inherit}
 <div class="addrow"><input id="add" placeholder="Quick add to Inbox…" enterkeyhint="send" autocomplete="off"><button class="clip" id="clip" aria-label="Attach files">📎</button></div>
 <input id="pick" type="file" multiple hidden>
 <div class="tabs" id="tabs"></div>
-<input id="q" type="search" placeholder="Search" autocomplete="off">
+<div class="srow"><input id="q" type="search" placeholder="Search" autocomplete="off"><button class="fbtn" id="fbtn" aria-label="Filters">Filters</button>
+<select id="sort" aria-label="Sort"></select></div><div class="chips" id="chips"></div>
 <div id="err"></div><div id="list" style="margin-top:10px"></div>
 </main>
-<div id="sheet"><div id="detail"></div></div><div id="lb"><img alt=""></div>
+<div id="sheet"><div id="detail"></div></div><div id="fsheet" class="sheet"><div id="fpanel"></div></div><div id="lb"><img alt=""></div>
 <script>
 const $=s=>document.querySelector(s);let view="today",timer,pending=[];
 async function api(p,body,raw){const o=body===undefined?{}:raw?{method:"POST",headers:{"X-Noty":"1","Content-Type":raw},body}:{method:"POST",headers:{"X-Noty":"1","Content-Type":"application/json"},body:JSON.stringify(body)};
@@ -144,16 +153,68 @@ function domNotes(root){const rootCS=getComputedStyle(root),baseCol=hexOf(rootCS
    if(st.px!==BASE)x='<span style="font-size:'+st.px+'px">'+x+"</span>";if(st.c)x='<span style="color:#'+st.c+'">'+x+"</span>";md+=lead+x+trail})}
  return md.replace(/\n+$/,"")}
 
+/* ---------- filters and sort (kept in this browser) ---------- */
+const SORTS=[["newest","Newest first"],["relevance","Best match"],["oldest","Oldest first"],["titleAZ","Title A–Z"],["titleZA","Title Z–A"],["category","Category"],["nextReminder","Next reminder"]];
+const KINDS=["task","note","reference","idea"],STATUS=[["any","Any"],["open","Open"],["done","Done"]];
+const ADDED=[["any","Any time"],["day","Last 24 hours"],["week","Last 7 days"],["month","Last 30 days"],["year","Last year"]];
+const blank=()=>({tags:[],cats:[],kinds:[],status:"any",today:0,reminders:0,attachments:0,added:"any"});
+let F=blank(),sort="newest",facets=null;
+const dec=x=>{try{return decodeURIComponent(x)}catch(e){return x}};
+try{const s=JSON.parse(localStorage.getItem("noty.filters")||"{}"),f=s&&s.f,b=blank(),arr=v=>Array.isArray(v)&&v.every(x=>typeof x==="string"),one=(v,l)=>l.some(x=>x[0]===v||x===v);
+ if(f&&typeof f==="object"&&arr(f.tags)&&arr(f.cats)&&arr(f.kinds)&&f.kinds.every(k=>KINDS.includes(k))&&one(f.status,STATUS)&&one(f.added,ADDED)&&[f.today,f.reminders,f.attachments].every(v=>v===0||v===1))F={...b,...f,tags:f.tags.slice(),cats:f.cats.slice(),kinds:f.kinds.slice()};
+ if(s&&one(s.sort,SORTS))sort=s.sort}catch(e){F=blank();sort="newest"}
+const saveF=()=>{try{localStorage.setItem("noty.filters",JSON.stringify({f:F,sort}))}catch(e){}};
+const nF=()=>F.tags.length+F.cats.length+F.kinds.length+(F.status!=="any")+F.today+F.reminders+F.attachments+(F.added!=="any");
+function params(){const p=new URLSearchParams(),q=$("#q").value.trim();if(q)p.set("q",q);else p.set("view",view);
+ if(F.tags.length)p.set("tags",F.tags.join(","));if(F.cats.length)p.set("cats",F.cats.join("|"));if(F.kinds.length)p.set("kinds",F.kinds.join(","));
+ if(F.status!=="any")p.set("status",F.status);if(F.today)p.set("today","1");if(F.reminders)p.set("reminders","1");if(F.attachments)p.set("attachments","1");
+ if(F.added!=="any")p.set("added",F.added);p.set("sort",sort);return p.toString()}
+function filtersUI(){const n=nF(),b=$("#fbtn");b.textContent="Filters";b.classList.toggle("on",n>0);if(n){b.append(el("span","badge",String(n)))}
+ const c=$("#chips");c.replaceChildren();
+ const chip=(t,fn)=>{const x=el("button","chip",t+" ✕");x.setAttribute("aria-label","Remove "+t);x.onclick=()=>{fn();saveF();filtersUI();load()};c.append(x)};
+ F.tags.forEach(t=>chip("#"+dec(t),()=>F.tags=F.tags.filter(x=>x!==t)));
+ F.cats.forEach(k=>chip(k.split("/").map(dec).join(" › "),()=>F.cats=F.cats.filter(x=>x!==k)));
+ F.kinds.forEach(k=>chip(k[0].toUpperCase()+k.slice(1),()=>F.kinds=F.kinds.filter(x=>x!==k)));
+ if(F.status!=="any")chip(F.status==="open"?"Open":"Done",()=>F.status="any");
+ if(F.today)chip("Today",()=>F.today=0);if(F.reminders)chip("Has reminders",()=>F.reminders=0);if(F.attachments)chip("Has files",()=>F.attachments=0);
+ if(F.added!=="any")chip(ADDED.find(a=>a[0]===F.added)[1],()=>F.added="any");
+ if(n){const x=el("button","chip","Clear all");x.onclick=()=>{F=blank();saveF();filtersUI();load()};c.append(x)}}
+const sel=$("#sort");SORTS.forEach(([v,n])=>{const o=el("option","",n);o.value=v;sel.append(o)});sel.value=sort;sel.onchange=()=>{sort=sel.value;saveF();load()};
+function toggle(a,v){const i=a.indexOf(v);i<0?a.push(v):a.splice(i,1)}
+let fTok=0;
+async function openFilters(){const tok=++fTok,s=$("#fpanel");let fc;
+ try{fc=await api("/api/facets")}catch(e){fc={tags:[],categories:[]}}
+ if(tok!==fTok)return;facets=fc;s.replaceChildren();s.append(el("h1","","Filters"));
+ const find=el("input");find.type="search";find.placeholder="Find a tag or category…";find.autocomplete="off";
+ const list=el("div","fl");
+ const draw=()=>{list.replaceChildren();const q=find.value.trim().toLowerCase();let any=false;
+  const row=(text,count,on,fn)=>{const l=el("label"),c=el("input");c.type="checkbox";c.checked=on;c.onchange=()=>{fn();saveF();filtersUI();load()};l.append(c,el("span","",text));if(count!==null)l.append(el("span","mute",String(count)));list.append(l);any=true};
+  const ts=facets.tags.filter(t=>t.name.toLowerCase().includes(q)),cs=facets.categories.filter(c=>c.path.toLowerCase().includes(q));
+  if(ts.length)list.append(el("div","sec","Tags"));ts.forEach(t=>row("#"+t.name,t.count,F.tags.some(x=>dec(x).toLowerCase()===t.name.toLowerCase()),()=>{const i=F.tags.findIndex(x=>dec(x).toLowerCase()===t.name.toLowerCase());i<0?F.tags.push(t.key):F.tags.splice(i,1)}));
+  if(cs.length)list.append(el("div","sec","Categories"));cs.forEach(c=>row(c.path,null,F.cats.includes(c.key),()=>toggle(F.cats,c.key)));
+  if(!any)list.append(el("div","empty","No tags or categories match"))};
+ find.oninput=draw;draw();s.append(find,list);
+ const opts=(title,items,isOn,fn)=>{s.append(el("div","sec",title));const o=el("div","opts");for(const[v,n]of items){const b=el("button",isOn(v)?"on":"",n);b.onclick=()=>{fn(v);saveF();filtersUI();load();b.parentNode.querySelectorAll("button").forEach((x,k)=>x.classList.toggle("on",isOn(items[k][0])))};o.append(b)}s.append(o)};
+ opts("Kind",KINDS.map(k=>[k,k[0].toUpperCase()+k.slice(1)]),v=>F.kinds.includes(v),v=>toggle(F.kinds,v));
+ opts("Status",STATUS,v=>F.status===v,v=>F.status=v);
+ opts("Show only",[["today","Today"],["reminders","Has reminders"],["attachments","Has files"]],v=>!!F[v],v=>F[v]=F[v]?0:1);
+ s.append(el("div","sec","Added"));const ad=el("select");ADDED.forEach(([v,n])=>{const o=el("option","",n);o.value=v;ad.append(o)});ad.value=F.added;ad.onchange=()=>{F.added=ad.value;saveF();filtersUI();load()};s.append(ad);
+ const b=el("div","btns"),clr=el("button","","Clear"),ok=el("button","p","Done");
+ clr.onclick=()=>{F=blank();s.querySelectorAll("input[type=checkbox]").forEach(c=>c.checked=false);saveF();filtersUI();load();openFilters()};ok.onclick=()=>$("#fsheet").classList.remove("on");b.append(clr,ok);s.append(b);$("#fsheet").classList.add("on")}
+$("#fbtn").onclick=openFilters;$("#fsheet").onclick=e=>{if(e.target.id==="fsheet")e.target.classList.remove("on")};
+document.addEventListener("keydown",e=>{if(e.key==="Escape")$("#fsheet").classList.remove("on")});
+
 /* ---------- list ---------- */
 const views=[["today","Today"],["inbox","Inbox"],["open","Open"],["done","Done"]];
 function tabs(){const t=$("#tabs");t.replaceChildren();for(const[v,n]of views){const b=el("button",v===view?"on":"",n);b.onclick=()=>{view=v;$("#q").value="";tabs();load()};t.append(b)}}
-async function load(){try{$("#err").textContent="";const q=$("#q").value.trim();
- const r=await api("/api/items?"+(q?"q="+encodeURIComponent(q):"view="+view));const l=$("#list");l.replaceChildren();
- if(!r.items.length)l.append(el("div","empty",q?"Nothing found.":"All clear."));
+let loadSeq=0;
+async function load(){const my=++loadSeq;try{$("#err").textContent="";const q=$("#q").value.trim();
+ const r=await api("/api/items?"+params());if(my!==loadSeq)return;const l=$("#list");l.replaceChildren();
+ if(!r.items.length)l.append(el("div","empty",q||nF()?"Nothing found.":"All clear."));
  for(const it of r.items){const row=el("div","row"+(it.done?" done":""));const c=el("button","chk",it.done?"✓":"");c.setAttribute("aria-label","Toggle done");
   c.onclick=async e=>{e.stopPropagation();await api("/api/items/"+it.id+"/done",{done:!it.done});load()};
   const t=el("div","t");t.append(el("b","",it.title),el("small","",it.path+(it.attachments?" · 📎 "+it.attachments:"")+(it.reminders?" · 🔔 "+it.reminders:"")));row.append(c,t);row.onclick=()=>openItem(it.id);l.append(row)}
- }catch(e){$("#err").textContent=e.message}}
+ }catch(e){if(my===loadSeq)$("#err").textContent=e.message}}
 
 /* ---------- attachments ---------- */
 const size=n=>n>1e6?(n/1e6).toFixed(1)+" MB":Math.max(1,Math.round(n/1e3))+" KB";
@@ -218,7 +279,7 @@ $("#add").addEventListener("keydown",async e=>{if(e.key!=="Enter")return;let t=e
  try{const it=await api("/api/items",{title:t,today:view==="today"});if(pending.length)await upload(it.id,pending);pending=[];$("#pick").value="";$("#clip").textContent="📎";e.target.value="";load()}catch(x){$("#err").textContent=x.message}});
 $("#q").addEventListener("input",()=>{clearTimeout(timer);timer=setTimeout(load,250)});
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&!current)load()});
-tabs();load();
+tabs();try{filtersUI()}catch(e){F=blank();sort="newest";try{filtersUI()}catch(x){}}load();
 </script></body></html>
 """#
 }

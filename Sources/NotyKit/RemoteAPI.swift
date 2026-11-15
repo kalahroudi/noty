@@ -102,6 +102,7 @@ public struct RemoteAPI: Sendable {
                                     headers: ["Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"])
             }
             if get && seg.count == 3 && seg[0] == "api" && seg[1] == "attachments" { return attachment(seg[2]) }
+            if get && seg.count == 2 && seg[0] == "api" && seg[1] == "facets" { return facets() }
             if seg.count >= 2, seg[0] == "api", seg[1] == "items" {
                 if seg.count == 2 { return get ? list(req) : try add(req) }
                 if seg.count == 3 && get { return try detail(seg[2]) }
@@ -112,7 +113,7 @@ public struct RemoteAPI: Sendable {
     }
 
     private func summary(_ it: Item) -> [String: Any] {
-        var d: [String: Any] = ["id": it.id, "title": it.title, "kind": it.kind.rawValue, "done": it.done, "today": it.today, "path": it.path.joined(separator: " › ")]
+        var d: [String: Any] = ["id": it.id, "title": it.title, "kind": it.kind.rawValue, "done": it.done, "today": it.today, "path": it.path.joined(separator: " › "), "tags": it.tags]
         let files = it.attachments.filter { !$0.lowercased().hasSuffix(".html") }.count
         if files > 0 { d["attachments"] = files }
         if !it.reminders.filter({ !$0.done }).isEmpty { d["reminders"] = it.reminders.filter { !$0.done }.count }
@@ -121,20 +122,28 @@ public struct RemoteAPI: Sendable {
 
     private func list(_ req: HTTPRequest) -> HTTPResponse {
         let items = store.load().items
-        let words = (req.query["q"] ?? "").lowercased().split(separator: " ").map(String.init)
-        var hits: [Item]
-        if !words.isEmpty {
-            hits = items.filter { it in let hay = (it.title + " " + it.quote + " " + it.notes + " " + it.tags.joined(separator: " ") + " " + it.pathLabel).lowercased(); return words.allSatisfy(hay.contains) }
-        } else {
+        let query = ItemQuery(query: req.query)
+        var base = items
+        if query.words.isEmpty {
+            // An explicit status filter replaces the view's own open/done rule.
+            let any = query.status == .any
             switch req.query["view"] ?? "open" {
-            case "today": hits = items.filter { $0.today && !$0.done }
-            case "inbox": hits = items.filter { $0.path.first == NotyStore.inbox && !$0.done }
-            case "done": hits = items.filter { $0.done }
-            default: hits = items.filter { !$0.done }
+            case "today": base = items.filter { $0.today && (!any || !$0.done) }
+            case "inbox": base = items.filter { $0.path.first == NotyStore.inbox && (!any || !$0.done) }
+            case "done": base = any ? items.filter { $0.done } : items
+            default: base = any ? items.filter { !$0.done } : items
             }
         }
-        hits.sort { $0.created > $1.created }
+        let hits = query.apply(base)
         return .json(["total": hits.count, "items": hits.prefix(200).map(summary)] as [String: Any])
+    }
+
+    /// Every tag (with counts) and category in the library, for the filter panel.
+    private func facets() -> HTTPResponse {
+        let lib = store.load()
+        let tags = ItemQuery.tagCounts(lib.items).map { ["name": $0.tag, "key": ItemQuery.encodeKey($0.tag), "count": $0.count] as [String: Any] }
+        let cats = Set(lib.categories.map(\.path)).union(lib.items.map(\.path)).sorted { $0.joined(separator: "/").localizedStandardCompare($1.joined(separator: "/")) == .orderedAscending }
+        return .json(["tags": tags, "categories": cats.map { ["path": $0.joined(separator: " › "), "key": ItemQuery.categoryKey($0)] }] as [String: Any])
     }
 
     private func detail(_ id: String) throws -> HTTPResponse {

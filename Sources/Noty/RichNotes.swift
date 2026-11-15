@@ -2,6 +2,7 @@
 
 import SwiftUI
 import AppKit
+import NotyKit
 
 /// Notes stay Markdown on disk (agents and humans read them), with a few inline tags for what Markdown can't say:
 /// `**bold**`, `*italic*`, `~~strike~~`, `<u>underline</u>`, `<span style="color:#RRGGBB">`, `<span style="font-size:Npx">`.
@@ -17,7 +18,8 @@ enum NotesMarkdown {
         var bold = false, italic = false, strike = false, under = false, mark = false
         var colors: [NSColor] = [], sizes: [CGFloat] = []
         var spans: [Character] = []   // which kind each open <span> was: "c" color, "s" size
-        let chars = Array(md); var i = 0; var buf = ""
+        let chars = Array(md.unicodeScalars); var i = 0; var buf = ""
+        let code = NotesText.codeMask(md)
         func flush() {
             guard !buf.isEmpty else { return }
             var traits: NSFontDescriptor.SymbolicTraits = []
@@ -30,10 +32,21 @@ enum NotesMarkdown {
             if mark { a[.backgroundColor] = highlightColor }
             out.append(NSAttributedString(string: buf, attributes: a)); buf = ""
         }
-        func starts(_ s: String) -> Bool { i + s.count <= chars.count && String(chars[i..<(i + s.count)]) == s }
+        func starts(_ s: String) -> Bool {
+            let u = Array(s.unicodeScalars)
+            return i + u.count <= chars.count && Array(chars[i..<(i + u.count)]) == u
+        }
         while i < chars.count {
-            let atLineStart = i == 0 || chars[i - 1] == "\n"
-            if chars[i] == "\\", i + 1 < chars.count, "\\*~<".contains(chars[i + 1]) { buf.append(chars[i + 1]); i += 2; continue }
+            // Code is shown as written, in a monospaced face at the same size (so it saves back without any size tag).
+            if code[i] {
+                flush(); var j = i; var s = ""
+                while j < chars.count, code[j] { s.unicodeScalars.append(chars[j]); j += 1 }
+                out.append(NSAttributedString(string: s, attributes: [.font: NSFont.monospacedSystemFont(ofSize: size, weight: .regular), .foregroundColor: NSColor.labelColor]))
+                i = j; continue
+            }
+            var b = i; while b > 0, chars[b - 1] == " " || chars[b - 1] == "\t" { b -= 1 }
+            let atLineStart = b == 0 || chars[b - 1] == "\n"   // only indentation before it
+            if chars[i] == "\\", i + 1 < chars.count, "\\*~<".unicodeScalars.contains(chars[i + 1]) { buf.unicodeScalars.append(chars[i + 1]); i += 2; continue }
             if starts("**") { flush(); bold.toggle(); i += 2; continue }
             if chars[i] == "*", !(atLineStart && i + 1 < chars.count && chars[i + 1] == " ") { flush(); italic.toggle(); i += 1; continue }
             if starts("~~") { flush(); strike.toggle(); i += 2; continue }
@@ -43,7 +56,7 @@ enum NotesMarkdown {
             if starts("</u>") { flush(); under = false; i += 4; continue }
             if starts("</span>") { flush(); if let k = spans.popLast() { if k == "c" { _ = colors.popLast() } else { _ = sizes.popLast() } }; i += 7; continue }
             if starts("<span style=\""), let close = chars[i...].firstIndex(of: ">") {
-                let tag = String(chars[i...close])
+                var tag = ""; tag.unicodeScalars.append(contentsOf: chars[i...close])
                 if let m = tag.range(of: #"color:#([0-9A-Fa-f]{6})"#, options: .regularExpression), let v = UInt32(tag[m].dropFirst(7), radix: 16) {
                     flush(); colors.append(Theme.rgb(v)); spans.append("c"); i = close + 1; continue
                 }
@@ -51,7 +64,7 @@ enum NotesMarkdown {
                     flush(); sizes.append(CGFloat(v)); spans.append("s"); i = close + 1; continue
                 }
             }
-            buf.append(chars[i]); i += 1
+            buf.unicodeScalars.append(chars[i]); i += 1
         }
         flush()
         return out
@@ -62,35 +75,67 @@ enum NotesMarkdown {
     static func markdown(_ text: NSAttributedString, size: CGFloat = baseSize) -> String {
         var md = ""
         let full = NSRange(location: 0, length: text.length)
+        let all = Array(text.string.unicodeScalars)
+        let code = NotesText.codeMask(text.string)
+        var pos = 0   // scalar offset of the current run in `all`
         text.enumerateAttributes(in: full) { attrs, range, _ in
-            let s = text.attributedSubstring(from: range).string
-            let font = attrs[.font] as? NSFont
-            let traits = font?.fontDescriptor.symbolicTraits ?? []
-            let isBold = traits.contains(.bold), isItalic = traits.contains(.italic)
-            let isMark = attrs[.backgroundColor] != nil
-            let isStrike = (attrs[.strikethroughStyle] as? Int ?? 0) != 0, isUnder = (attrs[.underlineStyle] as? Int ?? 0) != 0
-            let px = Int((font?.pointSize ?? size).rounded())
-            let color = (attrs[.foregroundColor] as? NSColor).flatMap(hex)
-            // Wrap each line on its own, with surrounding spaces kept outside the markers so Markdown still reads them.
-            let lines = s.components(separatedBy: "\n")
-            for (n, line) in lines.enumerated() {
-                if n > 0 { md += "\n" }
-                let core = line.trimmingCharacters(in: .whitespaces)
-                if core.isEmpty { md += line; continue }
-                let lead = String(line.prefix { $0 == " " || $0 == "\t" }), trail = String(line.reversed().prefix { $0 == " " || $0 == "\t" }.reversed())
-                var t = escape(core)
-                if isBold { t = "**\(t)**" }; if isItalic { t = "*\(t)*" }; if isStrike { t = "~~\(t)~~" }; if isUnder { t = "<u>\(t)</u>" }; if isMark { t = "<mark>\(t)</mark>" }
-                if px != Int(size) { t = "<span style=\"font-size:\(px)px\">\(t)</span>" }
-                if let c = color, c != hex(.labelColor) { t = "<span style=\"color:#\(c)\">\(t)</span>" }
-                md += lead + t + trail
+            let run = Array(text.attributedSubstring(from: range).string.unicodeScalars)
+            defer { pos += run.count }
+            // Code goes out exactly as typed; only the text around it carries formatting and escapes.
+            var k = 0
+            while k < run.count {
+                let isCode = pos + k < code.count && code[pos + k]
+                var e = k; while e < run.count, (pos + e < code.count && code[pos + e]) == isCode { e += 1 }
+                var seg = ""; seg.unicodeScalars.append(contentsOf: run[k..<e])
+                let lineStart = pos + k == 0 || all[pos + k - 1] == "\n"
+                md += isCode ? seg : styled(seg, attrs, size: size, atLineStart: lineStart)
+                k = e
             }
         }
         return md
     }
 
-    private static func escape(_ s: String) -> String {
-        var o = ""
-        for c in s { if "\\*~<".contains(c) { o.append("\\") }; o.append(c) }
+    private static func styled(_ s: String, _ attrs: [NSAttributedString.Key: Any], size: CGFloat, atLineStart: Bool) -> String {
+        let font = attrs[.font] as? NSFont
+        let traits = font?.fontDescriptor.symbolicTraits ?? []
+        let isBold = traits.contains(.bold), isItalic = traits.contains(.italic)
+        let isMark = attrs[.backgroundColor] != nil
+        let isStrike = (attrs[.strikethroughStyle] as? Int ?? 0) != 0, isUnder = (attrs[.underlineStyle] as? Int ?? 0) != 0
+        let px = Int((font?.pointSize ?? size).rounded())
+        let color = (attrs[.foregroundColor] as? NSColor).flatMap(hex)
+        var md = ""
+        // Wrap each line on its own, with surrounding spaces kept outside the markers so Markdown still reads them.
+        let lines = s.components(separatedBy: "\n")
+        for (n, line) in lines.enumerated() {
+            if n > 0 { md += "\n" }
+            let core = line.trimmingCharacters(in: .whitespaces)
+            if core.isEmpty { md += line; continue }
+            let lead = String(line.prefix { $0 == " " || $0 == "\t" }), trail = String(line.reversed().prefix { $0 == " " || $0 == "\t" }.reversed())
+            var t = escape(core, bulletAllowed: n > 0 || atLineStart)
+            if isBold { t = "**\(t)**" }; if isItalic { t = "*\(t)*" }; if isStrike { t = "~~\(t)~~" }; if isUnder { t = "<u>\(t)</u>" }; if isMark { t = "<mark>\(t)</mark>" }
+            if px != Int(size) { t = "<span style=\"font-size:\(px)px\">\(t)</span>" }
+            if let c = color, c != hex(.labelColor) { t = "<span style=\"color:#\(c)\">\(t)</span>" }
+            md += lead + t + trail
+        }
+        return md
+    }
+
+    /// Escapes only what the notes dialect would otherwise read as formatting, so pasted Markdown (`# Title`, `a < b`, `~/path`) stays readable on disk.
+    private static func escape(_ s: String, bulletAllowed: Bool) -> String {
+        let c = Array(s); var o = ""
+        let tags = ["<mark>", "</mark>", "<u>", "</u>", "</span>", "<span style=\""]
+        for (k, ch) in c.enumerated() {
+            let rest = String(c[k...])
+            switch ch {
+            case "*" where k == 0 && bulletAllowed && c.count > 1 && c[1] == " ": break   // a "* item" bullet
+            case "*": o.append("\\")
+            case "~" where (k + 1 < c.count && c[k + 1] == "~") || (k > 0 && c[k - 1] == "~"): o.append("\\")
+            case "<" where tags.contains(where: rest.hasPrefix): o.append("\\")
+            case "\\" where k + 1 == c.count || "\\*~<".contains(c[k + 1]): o.append("\\")
+            default: break
+            }
+            o.append(ch)
+        }
         return o
     }
 
@@ -161,11 +206,34 @@ final class NotesTextView: NSTextView {
         didChangeText()
     }
 
-    /// Pasting keeps the notes' look: plain text takes the base font, so notes never fill up with foreign styles.
-    override func paste(_ sender: Any?) { pasteAsPlainText(sender) }
+    /// Called after a paste that brought structure (headings, lists, code, tables, terminal output), so the editor can show it rendered.
+    var onStructuredPaste: (() -> Void)?
+
+    /// Pasting keeps the notes' look and the paste's structure: Markdown stays Markdown, HTML (Claude desktop, browsers) becomes Markdown,
+    /// terminal output loses its escape codes. Bold and italic come in as formatting; block syntax stays as written and renders in the preview.
+    override func paste(_ sender: Any?) {
+        let pb = NSPasteboard.general
+        guard let plain = pb.string(forType: .string) else { pasteAsPlainText(sender); return }
+        let html = pb.data(forType: .html).flatMap { String(data: $0, encoding: .utf8) }
+        let md = NotesText.pasteMarkdown(plain: plain, html: html)
+        guard !md.isEmpty, let ts = textStorage else { pasteAsPlainText(sender); return }
+        let size = (typingAttributes[.font] as? NSFont)?.pointSize ?? NotesMarkdown.baseSize
+        let piece = NotesMarkdown.attributed(md, size: size)
+        let r = selectedRange()
+        guard shouldChangeText(in: r, replacementString: piece.string) else { return }
+        ts.replaceCharacters(in: r, with: piece)
+        didChangeText()
+        setSelectedRange(NSRange(location: r.location + piece.length, length: 0))
+        scrollRangeToVisible(selectedRange())
+        if NotesText.isStructured(md) { onStructuredPaste?() }
+    }
 }
 
-@MainActor @Observable final class NotesEditorHandle { weak var view: NotesTextView? }
+@MainActor @Observable final class NotesEditorHandle {
+    weak var view: NotesTextView?
+    /// Bumped by a paste that brought structure, so the editor switches to the rendered view.
+    var structuredPastes = 0
+}
 
 struct RichNotesEditor: NSViewRepresentable {
     @Binding var markdown: String
@@ -187,6 +255,7 @@ struct RichNotesEditor: NSViewRepresentable {
         tv.typingAttributes = [.font: NSFont.systemFont(ofSize: NotesMarkdown.baseSize), .foregroundColor: NSColor.labelColor]
         scroll.drawsBackground = false; scroll.hasVerticalScroller = false
         handle.view = tv
+        tv.onStructuredPaste = { [handle] in handle.structuredPastes += 1 }
         tv.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.measure), name: NSView.frameDidChangeNotification, object: tv)
         context.coordinator.textView = tv
@@ -238,6 +307,7 @@ struct RichNotesEditor: NSViewRepresentable {
 }
 
 /// Notes with a small formatting bar: bold, italic, underline, strike, size and colour.
+/// Notes with structure (pasted agent answers, Markdown, HTML, terminal output) are shown rendered; Edit opens the text.
 struct NotesEditor: View {
     @Binding var markdown: String
     /// The box starts this tall and grows with the text, so long notes are never hidden behind a scroll.
@@ -246,37 +316,64 @@ struct NotesEditor: View {
     var itemID: String?
     @State private var contentHeight: CGFloat = 0
     @State private var handle = NotesEditorHandle()
+    /// nil until decided: notes with structure open rendered, plain notes open for typing.
+    @State private var editing: Bool?
     private static let colors: [(String, UInt32)] = [("Red", 0xD64545), ("Orange", 0xD9822B), ("Green", 0x2E9E5B), ("Blue", 0x2F6FED), ("Purple", 0x8A5CD6)]
+
+    private var structured: Bool { NotesText.isStructured(markdown) }
+    private var isEditing: Bool { editing ?? !structured }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 2) {
-                tool("bold", "Bold") { handle.view?.toggle(.bold) }
-                tool("italic", "Italic") { handle.view?.toggle(.italic) }
-                tool("underline", "Underline") { handle.view?.toggleAttribute(.underlineStyle) }
-                tool("strikethrough", "Strikethrough") { handle.view?.toggleAttribute(.strikethroughStyle) }
-                tool("highlighter", "Highlight") { if let tv = handle.view { tv.setHighlight(!tv.isHighlighted(tv.selectedRange())) } }
-                Divider().frame(height: 14).padding(.horizontal, 3)
-                Menu {
-                    Button("Small") { handle.view?.setSize(11) }
-                    Button("Normal") { handle.view?.setSize(NotesMarkdown.baseSize) }
-                    Button("Large") { handle.view?.setSize(17) }
-                    Button("Title") { handle.view?.setSize(22) }
-                } label: { Image(systemName: "textformat.size").frame(width: 24, height: 22) }
-                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Text size")
-                Menu {
-                    Button("Default") { handle.view?.setColor(nil) }
-                    Divider()
-                    ForEach(Self.colors, id: \.0) { c in Button(c.0) { handle.view?.setColor(Theme.rgb(c.1)) } }
-                } label: { Image(systemName: "paintpalette").frame(width: 24, height: 22) }
-                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Text colour")
+                if isEditing { formattingTools } else {
+                    Text("Formatted").font(.system(size: 11.5)).foregroundStyle(.secondary).padding(.leading, 4)
+                }
                 Spacer()
+                if !isEditing || structured {
+                    Button { editing = !isEditing } label: {
+                        Label(isEditing ? "Preview" : "Edit", systemImage: isEditing ? "eye" : "pencil").font(.system(size: 11.5, weight: .medium))
+                            .padding(.horizontal, 7).frame(height: 22).contentShape(Rectangle())
+                    }.buttonStyle(.plain).help(isEditing ? "Show the notes formatted" : "Edit the notes")
+                }
             }.padding(.horizontal, 6).padding(.vertical, 4)
             Divider()
-            RichNotesEditor(markdown: $markdown, contentHeight: $contentHeight, handle: handle, itemID: itemID).frame(height: max(minHeight, contentHeight)).padding(.horizontal, 4)
+            if isEditing {
+                RichNotesEditor(markdown: $markdown, contentHeight: $contentHeight, handle: handle, itemID: itemID).frame(height: max(minHeight, contentHeight)).padding(.horizontal, 4)
+            } else {
+                MarkdownView(text: markdown, size: NotesMarkdown.baseSize)
+                    .padding(.horizontal, 10).padding(.vertical, 9)
+                    .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .topLeading)
+            }
         }
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 9))
         .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.hairline))
+        // Decided once per item, so typing a heading or a list never flips the box out from under the cursor.
+        .onAppear { if editing == nil { editing = !structured } }
+        .onChange(of: itemID) { _, _ in editing = !structured }
+        .onChange(of: handle.structuredPastes) { _, _ in editing = false }
+    }
+
+    @ViewBuilder private var formattingTools: some View {
+        tool("bold", "Bold") { handle.view?.toggle(.bold) }
+        tool("italic", "Italic") { handle.view?.toggle(.italic) }
+        tool("underline", "Underline") { handle.view?.toggleAttribute(.underlineStyle) }
+        tool("strikethrough", "Strikethrough") { handle.view?.toggleAttribute(.strikethroughStyle) }
+        tool("highlighter", "Highlight") { if let tv = handle.view { tv.setHighlight(!tv.isHighlighted(tv.selectedRange())) } }
+        Divider().frame(height: 14).padding(.horizontal, 3)
+        Menu {
+            Button("Small") { handle.view?.setSize(11) }
+            Button("Normal") { handle.view?.setSize(NotesMarkdown.baseSize) }
+            Button("Large") { handle.view?.setSize(17) }
+            Button("Title") { handle.view?.setSize(22) }
+        } label: { Image(systemName: "textformat.size").frame(width: 24, height: 22) }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Text size")
+        Menu {
+            Button("Default") { handle.view?.setColor(nil) }
+            Divider()
+            ForEach(Self.colors, id: \.0) { c in Button(c.0) { handle.view?.setColor(Theme.rgb(c.1)) } }
+        } label: { Image(systemName: "paintpalette").frame(width: 24, height: 22) }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Text colour")
     }
 
     private func tool(_ symbol: String, _ help: String, _ action: @escaping () -> Void) -> some View {

@@ -59,7 +59,10 @@ enum SnapshotMode {
                 return AnyView(SelectionMenu(model: m).background(Theme.card, in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.hairline)).padding(30).background(Theme.pane))
             }
         }
-        return [agenda(), agenda(.week), selection(false), selection(true), stack(), stack(zoomed: true), stack(dark: true), detail(), pop(), pop(dark: true), capture(), capture(dark: true), manager(.library), manager(.library, dark: true), manager(.settings), manager(.settings, agents: true), manager(.help)]
+        func notes(dark: Bool = false) -> Shot {
+            Shot(name: "notes-formatted\(dark ? "-dark" : "")", dark: dark, size: CGSize(width: 720, height: 900)) { AnyView(NotesShot().padding(30).background(Theme.pane)) }
+        }
+        return [notes(), notes(dark: true), agenda(), agenda(.week), selection(false), selection(true), stack(), stack(zoomed: true), stack(dark: true), detail(), pop(), pop(dark: true), capture(), capture(dark: true), manager(.library), manager(.library, dark: true), manager(.settings), manager(.settings, agents: true), manager(.help)]
     }
 
     @MainActor static func render(_ shot: Shot, to dir: String) async {
@@ -142,4 +145,39 @@ struct PopoverShot: View {
         lib.scope = .category(["Work", "Q4 Launch"]); lib.selectedID = lib.items[0].id
         lib.loaded = true
     }
+}
+
+/// Notes holding a pasted agent answer and terminal output, shown formatted. Used only for screenshots.
+struct NotesShot: View {
+    @State private var notes = """
+    ## Fixed the flaky upload test
+    The retry loop raced the **timeout**; it now waits on the `uploadDone` signal. See [the PR](https://example.com/pr/42).
+
+    - [x] Reproduced with `swift test --filter Upload`
+    - [ ] Add a test for the cancel path
+    1. Retry budget: <mark>3 attempts</mark>
+    2. Backoff: <span style="color:#2F6FED">exponential</span>
+
+    > The race only shows on a cold cache.
+
+    ```swift
+    let ok = await upload.wait(timeout: .seconds(5)) // was sleep(2)
+    ```
+
+    | Run | Before | After |
+    |:----|-------:|------:|
+    | p50 | 1.9 s  | 0.4 s |
+    | p99 | 7.2 s  | 0.9 s |
+
+    ⏺ Bash(swift test)
+      ⎿  Test Suite 'All tests' passed
+         Executed 148 tests, with 0 failures in 2.31 s
+
+    ┌──────────┬────────┐
+    │ target   │ status │
+    ├──────────┼────────┤
+    │ NotyKit  │ ✓ pass │
+    └──────────┴────────┘
+    """
+    var body: some View { NotesEditor(markdown: $notes, minHeight: 200).frame(maxHeight: .infinity, alignment: .top) }
 }

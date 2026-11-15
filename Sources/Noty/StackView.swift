@@ -318,7 +318,6 @@ private struct StackDetail: View {
     }
 
     @ViewBuilder private var notes: some View {
-        if let a = try? AttributedString(NotesMarkdown.attributed(item.notes, size: 15), including: \.appKit) { Text(a).textSelection(.enabled) }
-        else { Text(item.notes).font(.system(size: 15)) }
+        MarkdownView(text: item.notes, size: 15)
     }
 }

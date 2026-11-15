@@ -56,6 +56,10 @@ select{font:inherit;color:inherit;background:var(--card);border:1px solid var(--
 .tool button{flex:none;min-width:34px;height:32px;border-radius:7px;border:0;background:none;font-size:15px}.tool button:active{background:var(--fill)}
 .tool .sep{width:1px;height:20px;background:var(--line);margin:0 3px;flex:none}.dot{width:18px;height:18px;border-radius:50%;display:block;margin:auto}
 #ed{min-height:130px;background:var(--card);border:1px solid var(--line);border-radius:0 0 10px 10px;padding:10px 12px;font-size:var(--base);white-space:pre-wrap;overflow-wrap:anywhere;outline:none}
+.md pre.term{font-family:Menlo,ui-monospace,monospace;line-height:1.2}.nhead{display:flex;align-items:center}.nhead .sec{flex:1}
+.nhead button{font-size:13px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--card)}
+#nview{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-height:60px}
+#src{min-height:220px;font:13px/1.4 ui-monospace,Menlo,monospace;white-space:pre;overflow:auto}
 #ed:empty:before{content:attr(data-ph);color:var(--mute)}.saved{font-size:12px;color:var(--mute);margin-top:4px;min-height:16px}
 mark{background:rgba(245,197,24,.42);color:inherit}
 #lb{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;z-index:5}#lb.on{display:flex}#lb img{max-width:100%;max-height:100%}
@@ -77,7 +81,7 @@ function el(t,c,x){const e=document.createElement(t);if(c)e.className=c;if(x!==u
 const att=n=>"/api/attachments/"+encodeURIComponent(n);
 
 /* ---------- Markdown (captured text): blocks and inline, as DOM ---------- */
-const INL=/\\([\\`*~\[\]()#>!_|-])|`([^`]+)`|!\[([^\]]*)\]\(attachment:(\d+)\)|\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)|\*\*(.+?)\*\*|~~(.+?)~~|\*([^*\s][^*]*?)\*/;
+const INL=/\\([\\`*~\[\]()#>!_|-])|`([^`]+)`|!\[([^\]]*)\]\(attachment:(\d+)\)|\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)|\*\*(.+?)\*\*|~~(.+?)~~|\*([^*\s][^*]*?)\*|<(u|mark)>(.+?)<\/\10>|<span style="color:#([0-9A-Fa-f]{6})">(.+?)<\/span>/;
 function inline(s,imgs,out){out=out||document.createDocumentFragment();
  while(s){const m=INL.exec(s);if(!m){out.append(s);break}
   if(m.index)out.append(s.slice(0,m.index));
@@ -88,14 +92,22 @@ function inline(s,imgs,out){out=out||document.createDocumentFragment();
   else if(m[7]!==undefined){const b=el("b");b.append(inline(m[7],imgs));out.append(b)}
   else if(m[8]!==undefined){const d=el("s");d.append(inline(m[8],imgs));out.append(d)}
   else if(m[9]!==undefined){const e=el("i");e.append(inline(m[9],imgs));out.append(e)}
+  else if(m[10]!==undefined){const e=el(m[10]);e.append(inline(m[11],imgs));out.append(e)}
+  else if(m[12]!==undefined){const e=el("span");e.style.color="#"+m[12];e.append(inline(m[13],imgs));out.append(e)}
   s=s.slice(m.index+m[0].length)}
  return out}
 const cells=l=>l.trim().replace(/^\|/,"").replace(/\|$/,"").split(/(?<!\\)\|/).map(c=>c.trim().replace(/\\\|/g,"|"));
-const isBlock=l=>/^(```|#{1,6}\s|>|\s*([-*+]|\d+[.)])\s|\s*\|.*\|\s*$|\s*([-*_])(\s*\3){2,}\s*$)/.test(l);
+const isTerm=l=>/^\s*⎿|[\u2500-\u259F]/.test(l);
+/* Notes worth showing rendered: headings, lists, quotes, tables, code, links, rules, terminal output (see NotesText.isStructured). */
+const isStructured=md=>(md||"").split("\n").some(l=>{const t=l.trim();return t&&(/^(```|~~~|>|\||#{1,6}\s|([-+]|\\?\*|\d+[.)])\s+\S)/.test(t)||/^([-*_])(\s*\1){2,}$/.test(t)||isTerm(l)||/\[[^\]]+\]\([^)\s]+\)|`[^`]+`|https?:\/\/\S/.test(t))});
+const isBlock=l=>isTerm(l)||/^(```|~~~|#{1,6}\s|>|\s*([-*+]|\d+[.)])\s|\s*\|.*\|\s*$|\s*([-*_])(\s*\3){2,}\s*$)/.test(l);
 function renderMD(md,imgs){const root=el("div","md"),L=(md||"").replace(/\r/g,"").split("\n");let i=0,m;
  while(i<L.length){const l=L[i];
   if(/^\s*$/.test(l)){i++;continue}
-  if(/^```/.test(l)){const c=[];i++;while(i<L.length&&!/^```/.test(L[i]))c.push(L[i++]);i++;const p=el("pre"),k=el("code","",c.join("\n"));p.append(k);root.append(p);continue}
+  if(m=l.match(/^\s{0,3}(`{3,}|~{3,})/)){const f=m[1],c=[];i++;while(i<L.length&&!(L[i].trim().startsWith(f)&&/^[`~]+$/.test(L[i].trim())))c.push(L[i++]);i++;const p=el("pre"),k=el("code","",c.join("\n"));p.append(k);root.append(p);continue}
+  if(isTerm(l)){const g=/^\s*⎿/.test(l)?l.match(/^ */)[0].length:-1,c=[];
+   while(i<L.length&&(isTerm(L[i])||(g>=0&&L[i].trim()&&L[i].match(/^ */)[0].length>g&&!/^\s*[⏺●]/.test(L[i]))))c.push(L[i++]);
+   const n=Math.min(...c.filter(x=>x.trim()).map(x=>x.match(/^ */)[0].length));const p=el("pre","term"),k=el("code","",c.map(x=>x.slice(n)).join("\n"));p.append(k);root.append(p);continue}
   if(m=l.match(/^(#{1,6})\s+(.*)$/)){const h=el("h"+Math.min(m[1].length,4));h.append(inline(m[2],imgs));root.append(h);i++;continue}
   if(/^\s*([-*_])(\s*\1){2,}\s*$/.test(l)){root.append(el("hr"));i++;continue}
   if(/^>/.test(l)){const c=[];while(i<L.length&&/^>/.test(L[i]))c.push(L[i++].replace(/^>\s?/,""));const q=el("blockquote");q.append(renderMD(c.join("\n"),imgs));root.append(q);continue}
@@ -105,7 +117,8 @@ function renderMD(md,imgs){const root=el("div","md"),L=(md||"").replace(/\r/g,""
    const w=el("div","tbl");w.append(t);root.append(w);continue}
   if(m=l.match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/)){
    while(i<L.length&&(m=L[i].match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/))){const d=el("div","li");d.style.paddingLeft=Math.floor(m[1].replace(/\t/g,"  ").length/2)*16+"px";
-    d.append(el("span","",/\d/.test(m[2])?m[2]:"•"));const t=el("span");t.append(inline(m[3],imgs));d.append(t);root.append(d);i++}
+    let body=m[3],mk=/\d/.test(m[2])?m[2]:"•";const tk=/\d/.test(m[2])?null:body.match(/^\[([ xX])\]\s+/);if(tk){mk=tk[1]===" "?"☐":"☑";body=body.slice(tk[0].length)}
+    d.append(el("span","",mk));const t=el("span");t.append(inline(body,imgs));if(tk&&tk[1]!==" ")t.style.cssText="text-decoration:line-through;color:var(--mute)";d.append(t);root.append(d);i++}
    continue}
   const c=[];while(i<L.length&&!/^\s*$/.test(L[i])&&(!c.length||!isBlock(L[i])))c.push(L[i++]);
   const p=el("p");p.append(inline(c.join("\n"),imgs));root.append(p)}
@@ -243,10 +256,20 @@ async function openItem(id){const d=await api("/api/items/"+id);const s=$("#deta
  inp.onchange=async()=>{try{await current.save();for(let k=0;k<inp.files.length;k++){st.textContent="Uploading "+(k+1)+" of "+inp.files.length+"…";await upload(id,[inp.files[k]])}openItem(id)}catch(e){st.textContent=e.message}};
  const ar=el("div");ar.style.cssText="display:flex;gap:10px;align-items:center;margin-top:6px";ar.append(add,st,inp);s.append(ar);
  // notes editor
- s.append(el("div","sec","Notes"));
+ // Notes with structure (pasted agent answers, Markdown, terminal output) show rendered; editing them is plain Markdown so nothing gets escaped.
+ const nhead=el("div","nhead"),mbtn=el("button");nhead.append(el("div","sec","Notes"),mbtn);s.append(nhead);
  const tool=el("div","tool"),ed=el("div");ed.id="ed";ed.contentEditable="true";ed.dataset.ph="Notes";ed.spellcheck=true;ed.append(notesDOM(d.notes||""));
+ const nview=el("div");nview.id="nview";const src=el("textarea");src.id="src";src.placeholder="Notes (Markdown)";src.spellcheck=false;
+ let notesMD=d.notes||"",mode=isStructured(notesMD)?"view":"rich";
+ const cur=()=>mode==="src"?src.value:mode==="rich"?domNotes(ed):notesMD;
  const saved=el("div","saved");let dirty=false,t2;
- const save=async()=>{if(!dirty)return;dirty=false;clearTimeout(t2);try{await api("/api/items/"+id+"/notes",{notes:domNotes(ed)});saved.textContent="Saved"}catch(e){dirty=true;saved.textContent=e.message}};
+ const save=async()=>{if(!dirty)return;dirty=false;clearTimeout(t2);notesMD=cur();try{await api("/api/items/"+id+"/notes",{notes:notesMD});saved.textContent="Saved"}catch(e){dirty=true;saved.textContent=e.message}};
+ const show=async m=>{if(mode!=="view"){notesMD=cur();await save()}mode=m;
+  tool.hidden=ed.hidden=m!=="rich";src.hidden=m!=="src";nview.hidden=m!=="view";mbtn.textContent=m==="view"?"✎ Edit":"Preview";
+  if(m==="view"){nview.replaceChildren(notesMD.trim()?renderMD(notesMD,d.images):el("span","mute","No notes"))}
+  else if(m==="src"){src.value=notesMD;src.focus()}else{ed.replaceChildren(notesDOM(notesMD))}};
+ mbtn.onclick=()=>show(mode==="view"?(isStructured(notesMD)?"src":"rich"):"view");
+ src.addEventListener("input",()=>touch());src.addEventListener("blur",()=>save());
  const touch=()=>{dirty=true;saved.textContent="";clearTimeout(t2);t2=setTimeout(save,900)};
  const exec=(c,v)=>{ed.focus();document.execCommand("styleWithCSS",false,true);document.execCommand(c,false,v);touch()};
  const btn=(label,title,fn,node)=>{const b=el("button","",label);b.title=title;b.setAttribute("aria-label",title);if(node)b.replaceChildren(node);
@@ -264,8 +287,17 @@ async function openItem(id){const d=await api("/api/items/"+id);const s=$("#deta
  COLORS.forEach(([n,h])=>btn("",n,()=>exec("foreColor","#"+h),(()=>{const d=el("span","dot");d.style.background="#"+h;return d})()));
  ed.addEventListener("input",touch);ed.addEventListener("blur",save);
  ed.addEventListener("beforeinput",e=>{if(e.inputType==="insertParagraph"){e.preventDefault();document.execCommand("insertLineBreak");touch()}});
- ed.addEventListener("paste",e=>{e.preventDefault();document.execCommand("insertText",false,e.clipboardData.getData("text/plain"))});
- s.append(tool,ed,saved);
+ ed.addEventListener("paste",e=>{e.preventDefault();const t=e.clipboardData.getData("text/plain").replace(/\r\n/g,"\n").replace(/\x1b\[[0-?]*[ -\/]*[@-~]/g,"");
+  if(!isStructured(t)){document.execCommand("insertText",false,t);return}
+  // Structured paste: keep it as written (no escaping) and show it rendered.
+  // Split the text at the caret, outside any bold/colour around it, and drop a marker there to swap for the paste.
+  const mark="\u2063NOTYPASTE\u2063",sel=getSelection();
+  if(sel.rangeCount&&ed.contains(sel.anchorNode)){const r=sel.getRangeAt(0);r.deleteContents();const tail=document.createRange();tail.setStart(r.endContainer,r.endOffset);tail.setEnd(ed,ed.childNodes.length);
+   const after=tail.extractContents();ed.append(document.createTextNode(mark),after)}else ed.append(document.createTextNode(mark));
+  const md=domNotes(ed),at=md.indexOf(mark),before=at<0?md:md.slice(0,at),rest=at<0?"":md.slice(at+mark.length);
+  const sep=before&&!before.endsWith("\n")&&!t.startsWith("\n")?"\n":"";
+  notesMD=before+sep+t+(rest&&!rest.startsWith("\n")&&!t.endsWith("\n")?"\n":"")+rest;mode="view";dirty=true;save();show("view")});
+ s.append(tool,ed,src,nview,saved);show(mode);
  current={save};
  const b=el("div","btns"),today=el("button","",d.today?"Remove from Today":"Add to Today"),done=el("button","",d.done?"Reopen":"Mark done"),close=el("button","p","Close");
  today.onclick=async()=>{await current.save();await api("/api/items/"+id+"/today",{today:!d.today});current=null;$("#sheet").classList.remove("on");load()};

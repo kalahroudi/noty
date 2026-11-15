@@ -17,6 +17,10 @@ enum NotyMain {
             let md = "Plain <mark>marked</mark> **bold** *it* ~~x~~ <u>u</u> <span style=\"color:#D64545\">red</span> <span style=\"font-size:22px\">big</span> \\*lit\\*\n- item"
             let back = NotesMarkdown.markdown(NotesMarkdown.attributed(md))
             guard NotesMarkdown.attributed(back).string == NotesMarkdown.attributed(md).string, back.contains("**bold**"), back.contains("<mark>marked</mark>"), back.contains("color:#D64545"), back.contains("22px") else { print("notes round-trip failed: \(back)"); exit(1) }
+            // Pasted Markdown and agent output must come back exactly as written: code untouched, nothing escaped that needn't be.
+            let pasted = "# Plan\n\n* first `a*b <u>x</u>`\n  * nested\n1. a < b and ~/path\n\n```swift\nlet x = a * b // <mark>\n```\n\n| a | b |\n|---|---|\n| **1** | 2 |\n  ⎿  done"
+            let pastedBack = NotesMarkdown.markdown(NotesMarkdown.attributed(pasted))
+            guard pastedBack == pasted else { print("pasted markdown round-trip failed:\n\(pastedBack)"); exit(1) }
             print("ok \(BuildInfo.current.commit ?? "dev")"); exit(0) }
         if let i = args.firstIndex(of: "--write-iconset"), i + 1 < args.count {
             do { try AppIcon.writeIconset(to: args[i + 1]); exit(0) } catch { FileHandle.standardError.write(Data("\(error)\n".utf8)); exit(1) }

@@ -25,6 +25,8 @@ struct LibraryPane: View {
                 PaneHeader(title: lib.query.isEmpty ? lib.scope.title : "Search", subtitle: subtitle(items.count)) {
                     HStack(spacing: 8) {
                         SearchBox(prompt: "Search everything", text: Bindable(lib).query).frame(width: 160)
+                        FilterButton()
+                        SortMenu()
                         Button { AgendaController.shared.toggle() } label: { Image(systemName: "calendar").frame(width: 14, height: 16) }.buttonStyle(Pill()).fixedSize().accessibilityLabel("Agenda")
                             .help("Reminders and calendar for today, tomorrow and the week (\(Prefs.shared.agendaHotkey.label))")
                         Button { StackController.shared.toggle() } label: { Image(systemName: "rectangle.stack").frame(width: 14, height: 16) }.buttonStyle(Pill()).fixedSize().accessibilityLabel("Stack")
@@ -35,6 +37,7 @@ struct LibraryPane: View {
                             .buttonStyle(Pill(kind: .primary)).disabled(items.isEmpty).fixedSize()
                     }.fixedSize(horizontal: false, vertical: true)
                 }
+                if lib.filter.isFiltering { ActiveFilterChips() }
                 if !lib.loaded { SkeletonList(rows: 7).frame(maxHeight: .infinity, alignment: .top).padding(.top, 20) }
                 else { list(items) }
             }
@@ -69,16 +72,17 @@ struct LibraryPane: View {
     }
 
     @ViewBuilder private func list(_ items: [Item]) -> some View {
-        let groups = Dictionary(grouping: items, by: \.pathLabel).sorted { $0.key.localizedStandardCompare($1.key) == .orderedAscending }
+        let grouped = lib.filter.sort == .category || (lib.filter.sort == .newest && !lib.filter.isFiltering && lib.query.isEmpty)
+        let groups = grouped ? Dictionary(grouping: items, by: \.pathLabel).sorted { $0.key.localizedStandardCompare($1.key) == .orderedAscending } : [(key: "", value: items)]
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
-                if lib.scope != .done, lib.query.isEmpty { quickAdd }
+                if lib.scope != .done, lib.query.isEmpty, !lib.filter.isFiltering { quickAdd }
                 if items.isEmpty { empty }
                 ForEach(groups, id: \.key) { g in
-                    if groups.count > 1 || lib.scope != .category(g.value[0].path) {
+                    if grouped, groups.count > 1 || lib.scope != .category(g.value[0].path) {
                         Text(g.key.uppercased()).font(.system(size: 11, weight: .semibold)).tracking(0.5).foregroundStyle(.secondary).padding(.top, 12).padding(.leading, 10)
                     }
-                    ForEach(g.value) { it in ItemRow(item: it, open: { detail = DetailRequest(id: $0) }) }
+                    ForEach(g.value) { it in ItemRow(item: it, showPath: !grouped, open: { detail = DetailRequest(id: $0) }) }
                 }
             }.padding(.horizontal, 14).padding(.vertical, 12)
         }
@@ -103,15 +107,18 @@ struct LibraryPane: View {
     private var empty: some View {
         VStack(spacing: 6) {
             Image(systemName: "highlighter").font(.system(size: 26)).foregroundStyle(.secondary)
-            Text(lib.query.isEmpty ? "Nothing here yet" : "No matches").font(.system(size: 14, weight: .semibold))
-            Text(lib.query.isEmpty ? "Select text in any app and press \(Prefs.shared.hotkey.label) to add it here." : "Try a different word.")
+            let none = lib.query.isEmpty && !lib.filter.isFiltering
+            Text(none ? "Nothing here yet" : "No matches").font(.system(size: 14, weight: .semibold))
+            Text(none ? "Select text in any app and press \(Prefs.shared.hotkey.label) to add it here." : lib.filter.isFiltering ? "Try removing a filter." : "Try a different word.")
                 .font(.system(size: 12.5)).foregroundStyle(.secondary)
+            if lib.filter.isFiltering { Button("Clear filters") { lib.filter = lib.filter.clearingFilters() }.buttonStyle(Pill()).padding(.top, 4) }
         }.frame(maxWidth: .infinity).padding(.top, 50)
     }
 }
 
 struct ItemRow: View {
     let item: Item
+    var showPath = false
     var open: (String) -> Void = { _ in }
     let lib = LibraryModel.shared
     @State private var hover = false
@@ -132,6 +139,7 @@ struct ItemRow: View {
                     }
                     HStack(spacing: 6) {
                         KindBadge(kind: item.kind)
+                        if showPath { Label(item.pathLabel, systemImage: "folder").font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1) }
                         if item.today { Badge(text: "Today", kind: .warn) }
                         if !item.attachments.isEmpty { Label("\(item.attachments.filter { !$0.hasSuffix(".html") }.count)", systemImage: "paperclip").font(.system(size: 11)).foregroundStyle(.secondary) }
                         if let a = item.sourceApp { SourceLabel(app: a, hasLink: item.sourceURL != nil) }

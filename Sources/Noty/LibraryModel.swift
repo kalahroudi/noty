@@ -35,6 +35,8 @@ final class LibraryModel {
     var selectedID: String?
     var expanded: Set<String> = []
     var query = ""
+    /// Filters and sort order chosen next to the search box. The words themselves live in `query`.
+    var filter = ItemQuery()
     /// Set by the capture panel (⌘↩) to open the "ask an agent" sheet for a just-captured item.
     var askAgentFor: String?
 
@@ -86,20 +88,24 @@ final class LibraryModel {
 
     func visibleItems() -> [Item] {
         var r: [Item]
+        // An explicit status filter replaces the scope's own open/done rule.
+        let any = filter.status == .any
         switch scope {
-        case .inbox: r = items.filter { $0.path.first == NotyStore.inbox && !$0.done }
-        case .today: r = items.filter { $0.today && !$0.done }
-        case .all: r = items.filter { !$0.done }
-        case .done: r = items.filter(\.done)
+        case .inbox: r = items.filter { $0.path.first == NotyStore.inbox && (!any || !$0.done) }
+        case .today: r = items.filter { $0.today && (!any || !$0.done) }
+        case .all: r = any ? items.filter { !$0.done } : items
+        case .done: r = any ? items.filter(\.done) : items
         case .agent: r = []
-        case .category(let p): r = items.filter { $0.path.starts(with: p) && !$0.done }
+        case .category(let p): r = items.filter { $0.path.starts(with: p) && (!any || !$0.done) }
         }
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        if !q.isEmpty {
-            r = items.filter { ($0.title + " " + $0.quote + " " + $0.notes + " " + $0.tags.joined(separator: " ") + " " + $0.pathLabel).lowercased().contains(q) }
-        }
-        return r
+        if !query.trimmingCharacters(in: .whitespaces).isEmpty { r = items }
+        var f = filter
+        f.text = query
+        return f.apply(r)
     }
+
+    /// Tags with counts and every category, for the filter popover. Counted over all items, so a tag never disappears from the list.
+    var tagCounts: [(tag: String, count: Int)] { ItemQuery.tagCounts(items) }
 
     func item(_ id: String?) -> Item? { id.flatMap { id in items.first { $0.id == id } } }
 

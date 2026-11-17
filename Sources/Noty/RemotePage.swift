@@ -167,21 +167,25 @@ function domNotes(root){const rootCS=getComputedStyle(root),baseCol=hexOf(rootCS
  return md.replace(/\n+$/,"")}
 
 /* ---------- filters and sort (kept in this browser) ---------- */
-const SORTS=[["newest","Newest first"],["relevance","Best match"],["oldest","Oldest first"],["titleAZ","Title A–Z"],["titleZA","Title Z–A"],["category","Category"],["nextReminder","Next reminder"]];
+const SORTS=[["newest","Newest first"],["updated","Recently updated"],["relevance","Best match"],["oldest","Oldest first"],["titleAZ","Title A–Z"],["titleZA","Title Z–A"],["category","Category"],["nextReminder","Next reminder"]];
 const KINDS=["task","note","reference","idea"],STATUS=[["any","Any"],["open","Open"],["done","Done"]];
-const ADDED=[["any","Any time"],["day","Last 24 hours"],["week","Last 7 days"],["month","Last 30 days"],["year","Last year"]];
-const blank=()=>({tags:[],cats:[],kinds:[],status:"any",today:0,reminders:0,attachments:0,added:"any"});
+const DATE_FIELDS=[["created","Created"],["updated","Updated"]];
+const ADDED=[["any","Any time"],["today","Today"],["yesterday","Yesterday"],["day","Last 24 hours"],["thisWeek","This week"],["week","Last 7 days"],["thisMonth","This month"],["month","Last 30 days"],["year","Last year"],["custom","Custom range"]];
+const blank=()=>({tags:[],cats:[],kinds:[],status:"any",today:0,reminders:0,attachments:0,dateField:"created",added:"any",from:"",to:""});
 let F=blank(),sort="newest",facets=null;
 const dec=x=>{try{return decodeURIComponent(x)}catch(e){return x}};
 try{const s=JSON.parse(localStorage.getItem("noty.filters")||"{}"),f=s&&s.f,b=blank(),arr=v=>Array.isArray(v)&&v.every(x=>typeof x==="string"),one=(v,l)=>l.some(x=>x[0]===v||x===v);
- if(f&&typeof f==="object"&&arr(f.tags)&&arr(f.cats)&&arr(f.kinds)&&f.kinds.every(k=>KINDS.includes(k))&&one(f.status,STATUS)&&one(f.added,ADDED)&&[f.today,f.reminders,f.attachments].every(v=>v===0||v===1))F={...b,...f,tags:f.tags.slice(),cats:f.cats.slice(),kinds:f.kinds.slice()};
+ if(f&&typeof f==="object"&&arr(f.tags)&&arr(f.cats)&&arr(f.kinds)&&f.kinds.every(k=>KINDS.includes(k))&&one(f.status,STATUS)&&one(f.added,ADDED)&&(!f.dateField||one(f.dateField,DATE_FIELDS))&&[f.today,f.reminders,f.attachments].every(v=>v===0||v===1))F={...b,...f,dateField:f.dateField||"created",from:typeof f.from==="string"?f.from:"",to:typeof f.to==="string"?f.to:"",tags:f.tags.slice(),cats:f.cats.slice(),kinds:f.kinds.slice()};
  if(s&&one(s.sort,SORTS))sort=s.sort}catch(e){F=blank();sort="newest"}
 const saveF=()=>{try{localStorage.setItem("noty.filters",JSON.stringify({f:F,sort}))}catch(e){}};
-const nF=()=>F.tags.length+F.cats.length+F.kinds.length+(F.status!=="any")+F.today+F.reminders+F.attachments+(F.added!=="any");
+const nF=()=>F.tags.length+F.cats.length+F.kinds.length+(F.status!=="any")+F.today+F.reminders+F.attachments+(F.added!=="any"||!!F.from||!!F.to);
 function params(){const p=new URLSearchParams(),q=$("#q").value.trim();if(q)p.set("q",q);else p.set("view",view);
  if(F.tags.length)p.set("tags",F.tags.join(","));if(F.cats.length)p.set("cats",F.cats.join("|"));if(F.kinds.length)p.set("kinds",F.kinds.join(","));
  if(F.status!=="any")p.set("status",F.status);if(F.today)p.set("today","1");if(F.reminders)p.set("reminders","1");if(F.attachments)p.set("attachments","1");
- if(F.added!=="any")p.set("added",F.added);p.set("sort",sort);return p.toString()}
+ if(F.dateField!=="created")p.set("date_field",F.dateField);
+ if(F.added!=="any")p.set("added",F.added);
+ if(F.added==="custom"){if(F.from)p.set("from",F.from);if(F.to)p.set("to",F.to)}
+ p.set("sort",sort);return p.toString()}
 function filtersUI(){const n=nF(),b=$("#fbtn");b.textContent="Filters";b.classList.toggle("on",n>0);if(n){b.append(el("span","badge",String(n)))}
  const c=$("#chips");c.replaceChildren();
  const chip=(t,fn)=>{const x=el("button","chip",t+" ✕");x.setAttribute("aria-label","Remove "+t);x.onclick=()=>{fn();saveF();filtersUI();load()};c.append(x)};
@@ -190,7 +194,7 @@ function filtersUI(){const n=nF(),b=$("#fbtn");b.textContent="Filters";b.classLi
  F.kinds.forEach(k=>chip(k[0].toUpperCase()+k.slice(1),()=>F.kinds=F.kinds.filter(x=>x!==k)));
  if(F.status!=="any")chip(F.status==="open"?"Open":"Done",()=>F.status="any");
  if(F.today)chip("Today",()=>F.today=0);if(F.reminders)chip("Has reminders",()=>F.reminders=0);if(F.attachments)chip("Has files",()=>F.attachments=0);
- if(F.added!=="any")chip(ADDED.find(a=>a[0]===F.added)[1],()=>F.added="any");
+ if(F.added!=="any"||F.from||F.to){const lbl=F.added==="custom"?((F.from||"…")+" – "+(F.to||"…")):(ADDED.find(a=>a[0]===F.added)||["","Date"])[1];chip((F.dateField==="updated"?"Updated: ":"Created: ")+lbl,()=>{F.added="any";F.from="";F.to=""})}
  if(n){const x=el("button","chip","Clear all");x.onclick=()=>{F=blank();saveF();filtersUI();load()};c.append(x)}}
 const sel=$("#sort");SORTS.forEach(([v,n])=>{const o=el("option","",n);o.value=v;sel.append(o)});sel.value=sort;sel.onchange=()=>{sort=sel.value;saveF();load()};
 function toggle(a,v){const i=a.indexOf(v);i<0?a.push(v):a.splice(i,1)}
@@ -211,7 +215,13 @@ async function openFilters(){const tok=++fTok,s=$("#fpanel");let fc;
  opts("Kind",KINDS.map(k=>[k,k[0].toUpperCase()+k.slice(1)]),v=>F.kinds.includes(v),v=>toggle(F.kinds,v));
  opts("Status",STATUS,v=>F.status===v,v=>F.status=v);
  opts("Show only",[["today","Today"],["reminders","Has reminders"],["attachments","Has files"]],v=>!!F[v],v=>F[v]=F[v]?0:1);
- s.append(el("div","sec","Added"));const ad=el("select");ADDED.forEach(([v,n])=>{const o=el("option","",n);o.value=v;ad.append(o)});ad.value=F.added;ad.onchange=()=>{F.added=ad.value;saveF();filtersUI();load()};s.append(ad);
+ opts("Date field",DATE_FIELDS,v=>F.dateField===v,v=>F.dateField=v);
+ s.append(el("div","sec","Date"));const ad=el("select");ADDED.forEach(([v,n])=>{const o=el("option","",n);o.value=v;ad.append(o)});ad.value=F.added;
+ const cr=el("div");cr.style.cssText="display:"+(F.added==="custom"?"flex":"none")+";gap:6px;margin-top:6px";
+ const df=el("input");df.type="date";df.value=F.from;df.onchange=()=>{F.from=df.value;saveF();filtersUI();load()};
+ const dt=el("input");dt.type="date";dt.value=F.to;dt.onchange=()=>{F.to=dt.value;saveF();filtersUI();load()};
+ cr.append(df,dt);
+ ad.onchange=()=>{F.added=ad.value;cr.style.display=F.added==="custom"?"flex":"none";saveF();filtersUI();load()};s.append(ad,cr);
  const b=el("div","btns"),clr=el("button","","Clear"),ok=el("button","p","Done");
  clr.onclick=()=>{F=blank();s.querySelectorAll("input[type=checkbox]").forEach(c=>c.checked=false);saveF();filtersUI();load();openFilters()};ok.onclick=()=>$("#fsheet").classList.remove("on");b.append(clr,ok);s.append(b);$("#fsheet").classList.add("on")}
 $("#fbtn").onclick=openFilters;$("#fsheet").onclick=e=>{if(e.target.id==="fsheet")e.target.classList.remove("on")};
@@ -239,7 +249,7 @@ function zoom(src){const lb=$("#lb");lb.querySelector("img").src=src;lb.classLis
 let current=null;
 async function closeSheet(){if(current)await current.save();current=null;$("#sheet").classList.remove("on");load()}
 async function openItem(id){const d=await api("/api/items/"+id);const s=$("#detail");s.replaceChildren();
- s.append(el("h1","",d.title),el("div","mute",d.path+" · "+d.kind));
+ s.append(el("h1","",d.title),el("div","mute",d.path+" · "+d.kind+(d.created?" · Created "+new Date(d.created).toLocaleString():"")+(d.updated?" · Updated "+new Date(d.updated).toLocaleString():"")));
  const refd=new Set([...(d.quote||"").matchAll(/attachment:(\d+)/g)].map(m=>+m[1]-1));
  if(d.quote){const q=el("div","quote");q.append(renderMD(d.quote,d.images));s.append(el("div","sec","Highlighted text"),q)}
  if(d.sourceURL&&/^https?:/.test(d.sourceURL)){const a=el("a","",d.sourceTitle||d.sourceURL);a.href=d.sourceURL;a.target="_blank";a.rel="noopener noreferrer";s.append(a)}

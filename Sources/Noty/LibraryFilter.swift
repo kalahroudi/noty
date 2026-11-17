@@ -84,12 +84,44 @@ struct FilterPopover: View {
                 ToggleChip(title: "Has files", symbol: "paperclip", isOn: f.withAttachments)
             }
             HStack {
-                Text("Added").font(.system(size: 12.5)).foregroundStyle(.secondary)
-                Picker("Added", selection: f.added) { ForEach(ItemQuery.DateRange.allCases, id: \.self) { Text($0.label).tag($0) } }.labelsHidden().fixedSize()
+                Text("Date").font(.system(size: 12.5)).foregroundStyle(.secondary)
+                Spacer()
+                Picker("Date field", selection: f.dateField) {
+                    ForEach(ItemQuery.DateField.allCases, id: \.self) { Text($0.label).tag($0) }
+                }.pickerStyle(.segmented).labelsHidden().fixedSize()
+            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 84), spacing: 6)], alignment: .leading, spacing: 6) {
+                ForEach(ItemQuery.DateRange.quickPresets, id: \.self) { r in
+                    Button {
+                        if r == .custom {
+                            if lib.filter.dateFrom == nil { lib.filter.dateFrom = Date() }
+                            if lib.filter.dateTo == nil { lib.filter.dateTo = Date() }
+                            lib.filter.added = .custom
+                        } else {
+                            lib.filter.added = (lib.filter.added == r && r != .any) ? .any : r
+                        }
+                    } label: { Text(r.shortLabel).frame(maxWidth: .infinity) }
+                        .buttonStyle(ChipStyle(on: lib.filter.added == r && (r != .any || !lib.filter.hasDateFilter)))
+                }
+            }
+            if lib.filter.added == .custom {
+                VStack(alignment: .leading, spacing: 6) {
+                    DatePicker("From", selection: customDateBinding(\.dateFrom), displayedComponents: .date).font(.system(size: 12))
+                    DatePicker("To", selection: customDateBinding(\.dateTo), displayedComponents: .date).font(.system(size: 12))
+                }
+            }
+            HStack {
                 Spacer()
                 Button("Clear filters") { lib.filter = lib.filter.clearingFilters() }.buttonStyle(Pill()).disabled(!lib.filter.isFiltering)
             }
-        }.padding(14).frame(width: 300)
+        }.padding(14).frame(width: 320)
+    }
+
+    private func customDateBinding(_ kp: WritableKeyPath<ItemQuery, Date?>) -> Binding<Date> {
+        Binding(
+            get: { lib.filter[keyPath: kp] ?? Date() },
+            set: { lib.filter[keyPath: kp] = $0; lib.filter.added = .custom }
+        )
     }
 
     private func toggleTag(_ t: String) {
@@ -138,11 +170,24 @@ struct ActiveFilterChips: View {
                     if f.onlyToday { chip("Today", "sun.max") { lib.filter.onlyToday = false } }
                     if f.withReminders { chip("Has reminders", "bell") { lib.filter.withReminders = false } }
                     if f.withAttachments { chip("Has files", "paperclip") { lib.filter.withAttachments = false } }
-                    if f.added != .any { chip(f.added.label, "calendar") { lib.filter.added = .any } }
+                    if f.hasDateFilter {
+                        chip("\(f.dateField.label): \(dateChipLabel(f))", "calendar") {
+                            lib.filter.added = .any; lib.filter.dateFrom = nil; lib.filter.dateTo = nil
+                        }
+                    }
                 }
             }
             Button("Clear all") { lib.filter = lib.filter.clearingFilters() }.buttonStyle(.plain).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary).fixedSize()
         }.padding(.horizontal, 22).padding(.vertical, 8)
+    }
+
+    private func dateChipLabel(_ f: ItemQuery) -> String {
+        if f.added == .custom {
+            let from = f.dateFrom?.formatted(date: .abbreviated, time: .omitted) ?? "…"
+            let to = f.dateTo?.formatted(date: .abbreviated, time: .omitted) ?? "…"
+            return "\(from) – \(to)"
+        }
+        return f.added.label
     }
 
     private func chip(_ title: String, _ symbol: String? = nil, remove: @escaping () -> Void) -> some View {
@@ -154,5 +199,73 @@ struct ActiveFilterChips: View {
             }.font(.system(size: 12, weight: .medium)).padding(.horizontal, 9).padding(.vertical, 4)
                 .foregroundStyle(Theme.onSoft).background(Theme.accentSoft, in: Capsule())
         }.buttonStyle(.plain).help("Remove this filter").accessibilityLabel("Remove filter \(title)")
+    }
+}
+
+/// Quick date filter bar below the pane header (Today, Yesterday, This week, etc., plus custom date range).
+struct QuickDateBar: View {
+    let lib = LibraryModel.shared
+    @State private var showCustom = false
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                Menu {
+                    ForEach(ItemQuery.DateField.allCases, id: \.self) { df in
+                        Button { lib.filter.dateField = df } label: {
+                            if lib.filter.dateField == df { Label(df.label, systemImage: "checkmark") } else { Text(df.label) }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "calendar").font(.system(size: 10.5))
+                        Text(lib.filter.dateField.label)
+                        Image(systemName: "chevron.down").font(.system(size: 8.5, weight: .semibold))
+                    }
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(Theme.fill, in: RoundedRectangle(cornerRadius: 7))
+                }
+                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                .help("Filter by Created or Updated date")
+
+                ForEach(ItemQuery.DateRange.quickPresets, id: \.self) { r in
+                    let active = lib.filter.added == r && (r != .any || !lib.filter.hasDateFilter)
+                    Button {
+                        if r == .custom {
+                            if lib.filter.dateFrom == nil { lib.filter.dateFrom = Date() }
+                            if lib.filter.dateTo == nil { lib.filter.dateTo = Date() }
+                            lib.filter.added = .custom
+                            showCustom = true
+                        } else {
+                            lib.filter.added = (lib.filter.added == r && r != .any) ? .any : r
+                        }
+                    } label: {
+                        Text(r.shortLabel)
+                            .font(.system(size: 11.5, weight: .medium))
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .foregroundStyle(active ? Theme.onSoft : Color.secondary)
+                            .background(active ? Theme.accentSoft : Theme.fill.opacity(0.6), in: RoundedRectangle(cornerRadius: 7))
+                            .overlay(RoundedRectangle(cornerRadius: 7).stroke(active ? Theme.highlight.opacity(0.5) : .clear))
+                    }
+                    .buttonStyle(.plain)
+                    .popover(isPresented: r == .custom ? $showCustom : .constant(false), arrowEdge: .bottom) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Custom date range (\(lib.filter.dateField.label))").font(.system(size: 12.5, weight: .semibold))
+                            DatePicker("From", selection: Binding(get: { lib.filter.dateFrom ?? Date() }, set: { lib.filter.dateFrom = $0; lib.filter.added = .custom }), displayedComponents: .date)
+                            DatePicker("To", selection: Binding(get: { lib.filter.dateTo ?? Date() }, set: { lib.filter.dateTo = $0; lib.filter.added = .custom }), displayedComponents: .date)
+                            HStack {
+                                Button("Reset") { lib.filter.added = .any; lib.filter.dateFrom = nil; lib.filter.dateTo = nil; showCustom = false }.buttonStyle(Pill())
+                                Spacer()
+                                Button("Done") { showCustom = false }.buttonStyle(Pill(kind: .primary))
+                            }
+                        }.padding(12).frame(width: 240)
+                    }
+                }
+            }.padding(.horizontal, 22).padding(.vertical, 7)
+        }
+        .background(Theme.pane)
+        .overlay(alignment: .bottom) { Divider() }
     }
 }

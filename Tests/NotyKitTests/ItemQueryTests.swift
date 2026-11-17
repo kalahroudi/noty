@@ -146,4 +146,63 @@ final class ItemQueryTests: XCTestCase {
         XCTAssertEqual(try ids(["view": "done", "status": "open"]), ["o"])
         XCTAssertEqual(try ids(["view": "open", "status": "done"]), ["d"])
     }
+
+    func testQuickDateFiltersAndUpdatedDateField() {
+        let cal = Calendar.current
+        let todayNoon = cal.date(bySettingHour: 12, minute: 0, second: 0, of: now)!
+        let yesterdayNoon = cal.date(byAdding: .day, value: -1, to: todayNoon)!
+        let oldDate = cal.date(byAdding: .day, value: -45, to: todayNoon)!
+
+        let items = [
+            Item(id: "t", title: "Created today", created: todayNoon, updated: todayNoon),
+            Item(id: "y", title: "Created yesterday", created: yesterdayNoon, updated: yesterdayNoon),
+            Item(id: "u", title: "Old but updated today", created: oldDate, updated: todayNoon),
+        ]
+
+        var q = ItemQuery()
+        q.added = .today
+        XCTAssertEqual(Set(q.apply(items, now: todayNoon).map(\.id)), ["t"])
+
+        q.added = .yesterday
+        XCTAssertEqual(Set(q.apply(items, now: todayNoon).map(\.id)), ["y"])
+
+        q.dateField = .updated
+        q.added = .today
+        XCTAssertEqual(Set(q.apply(items, now: todayNoon).map(\.id)), ["t", "u"])
+
+        q.added = .custom
+        q.dateFrom = yesterdayNoon
+        q.dateTo = yesterdayNoon
+        q.dateField = .created
+        XCTAssertEqual(Set(q.apply(items, now: todayNoon).map(\.id)), ["y"])
+
+        // URL query round-trip with dateField and custom range
+        var r = ItemQuery()
+        r.dateField = .updated
+        r.added = .custom
+        r.dateFrom = cal.startOfDay(for: yesterdayNoon)
+        r.dateTo = cal.startOfDay(for: todayNoon)
+        XCTAssertEqual(ItemQuery(query: r.queryItems), r)
+    }
+
+    func testUpdatedSortAndItemFileRoundTrip() throws {
+        let t1 = Date(timeIntervalSince1970: 1_800_000_000)
+        let t2 = Date(timeIntervalSince1970: 1_800_010_000)
+        let a = Item(id: "a", title: "Older update", created: t2, updated: t1)
+        let b = Item(id: "b", title: "Newer update", created: t1, updated: t2)
+
+        var q = ItemQuery()
+        q.sort = .updated
+        XCTAssertEqual(q.apply([a, b], now: t2).map(\.id), ["b", "a"])
+
+        let encoded = ItemFile.encode(b)
+        let decoded = try XCTUnwrap(ItemFile.decode(encoded))
+        XCTAssertEqual(decoded.created, t1)
+        XCTAssertEqual(decoded.updated, t2)
+
+        // Legacy file without `updated:` falls back to `created`
+        let legacy = "---\nid: \"leg\"\ntitle: \"Legacy\"\nkind: \"task\"\ndone: false\ntoday: false\ntags: []\ncreated: \"2026-01-01T00:00:00Z\"\n---\n"
+        let legItem = try XCTUnwrap(ItemFile.decode(legacy))
+        XCTAssertEqual(legItem.updated, legItem.created)
+    }
 }

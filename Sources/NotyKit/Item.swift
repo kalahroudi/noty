@@ -24,6 +24,7 @@ public struct Item: Identifiable, Equatable, Sendable {
     public var sourceTitle: String?
     public var sourceURL: String?
     public var created: Date
+    public var updated: Date
     /// Image file names (PNG) kept in the library's `_attachments` folder.
     public var attachments: [String]
     /// Workspace first, then categories: ["Work", "Q4 Launch", "Research"]. Mirrors the folders.
@@ -35,10 +36,10 @@ public struct Item: Identifiable, Equatable, Sendable {
 
     public init(id: String = UUID().uuidString, title: String, kind: ItemKind = .task, done: Bool = false, today: Bool = false,
                 tags: [String] = [], quote: String = "", notes: String = "", sourceApp: String? = nil, sourceTitle: String? = nil,
-                sourceURL: String? = nil, created: Date = Date(), attachments: [String] = [], path: [String] = [NotyStore.inbox], reminders: [Reminder] = [], file: URL? = nil) {
+                sourceURL: String? = nil, created: Date = Date(), updated: Date? = nil, attachments: [String] = [], path: [String] = [NotyStore.inbox], reminders: [Reminder] = [], file: URL? = nil) {
         self.id = id; self.title = title; self.kind = kind; self.done = done; self.today = today; self.tags = tags
         self.quote = quote; self.notes = notes; self.sourceApp = sourceApp; self.sourceTitle = sourceTitle; self.sourceURL = sourceURL
-        self.created = created; self.attachments = attachments; self.path = path; self.reminders = reminders; self.file = file
+        self.created = created; self.updated = updated ?? created; self.attachments = attachments; self.path = path; self.reminders = reminders; self.file = file
     }
 
     /// A short title taken from the first line of a highlighted passage.
@@ -71,7 +72,7 @@ public enum ItemFile {
             return String(decoding: d, as: UTF8.self)
         }
         var h = ["---", "id: \(j(item.id))", "title: \(j(item.title))", "kind: \(j(item.kind.rawValue))", "done: \(item.done)", "today: \(item.today)",
-                 "tags: \(j(item.tags))", "created: \(j(iso.string(from: item.created)))"]
+                 "tags: \(j(item.tags))", "created: \(j(iso.string(from: item.created)))", "updated: \(j(iso.string(from: item.updated)))"]
         if !item.attachments.isEmpty { h.append("attachments: \(j(item.attachments))") }
         if !item.reminders.isEmpty {
             let list = item.reminders.map { r -> [String: Any] in
@@ -113,11 +114,13 @@ public enum ItemFile {
             quote.append(String(first.dropFirst().hasPrefix(" ") ? first.dropFirst(2) : first.dropFirst())); rest.removeFirst()
         }
         let notes = rest.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        let created = (f["created"] as? String).flatMap { iso.date(from: $0) } ?? Date()
+        let updated = (f["updated"] as? String).flatMap { iso.date(from: $0) } ?? created
         return Item(id: id, title: f["title"] as? String ?? "Untitled", kind: ItemKind(rawValue: f["kind"] as? String ?? "") ?? .task,
                     done: f["done"] as? Bool ?? false, today: f["today"] as? Bool ?? false, tags: f["tags"] as? [String] ?? [],
                     quote: quote.joined(separator: "\n"), notes: notes, sourceApp: f["source_app"] as? String,
                     sourceTitle: f["source_title"] as? String, sourceURL: f["source_url"] as? String,
-                    created: (f["created"] as? String).flatMap { iso.date(from: $0) } ?? Date(), attachments: f["attachments"] as? [String] ?? [],
+                    created: created, updated: updated, attachments: f["attachments"] as? [String] ?? [],
                     reminders: (f["reminders"] as? [[String: Any]] ?? []).compactMap { d in
                         guard let id = d["id"] as? String, let text = d["text"] as? String, let due = (d["due"] as? String).flatMap({ iso.date(from: $0) }) else { return nil }
                         return Reminder(id: id, text: text, due: due, kind: Reminder.Kind(rawValue: d["kind"] as? String ?? "") ?? .reminder, nudge: d["nudge"] as? Bool ?? false, done: d["done"] as? Bool ?? false, eventID: d["event"] as? String)

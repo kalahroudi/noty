@@ -255,7 +255,7 @@ public final class NotyStore: @unchecked Sendable {
         try Data(p.content.utf8).write(to: dest, options: .atomic)
         if p.completeItems {
             let lib = load()
-            for id in p.itemIds { if var it = lib.items.first(where: { $0.id == id }) { it.done = true; try save(it) } }
+            for id in p.itemIds { if var it = lib.items.first(where: { $0.id == id }) { it.done = true; it.updated = Date(); try save(it) } }
         }
         discardProposal(p.id)
         return dest

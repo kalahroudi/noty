@@ -59,14 +59,15 @@ private func find(_ s: NotyStore, _ rawID: String) throws -> Item {
 }
 
 private func dict(_ it: Item, full: Bool = true, store: NotyStore? = nil) -> [String: Any] {
+    let iso = ISO8601DateFormatter()
     var d: [String: Any] = ["id": it.id, "title": it.title, "kind": it.kind.rawValue, "done": it.done, "today": it.today,
-                            "path": it.pathLabel.replacingOccurrences(of: " › ", with: "/"), "tags": it.tags]
+                            "path": it.pathLabel.replacingOccurrences(of: " › ", with: "/"), "tags": it.tags,
+                            "created": iso.string(from: it.created), "updated": iso.string(from: it.updated)]
     if full {
         d["quote"] = it.resolvedQuote(store: store); d["notes"] = it.notes
         var src: [String: Any] = [:]
         if let v = it.sourceApp { src["app"] = v }; if let v = it.sourceTitle { src["title"] = v }; if let v = it.sourceURL { src["url"] = v }
         if !src.isEmpty { d["source"] = src }
-        d["created"] = ISO8601DateFormatter().string(from: it.created)
         if !it.reminders.isEmpty { d["reminders"] = it.reminders.map { reminderDict($0) } }
         if !it.attachments.isEmpty, let st = store {
             d["image_files"] = it.imageAttachments.map { st.attachmentURL($0).path }
@@ -165,6 +166,7 @@ let allTools: [Tool] = {
         if let v = a["today"] as? Bool { it.today = v }
         if let v = a["notes"] as? String { it.notes = v }
         if let v = a["append_notes"] as? String, !v.isEmpty { it.notes += (it.notes.isEmpty ? "" : "\n\n") + v }
+        it.updated = Date()
         return try text(dict(try s.save(it), full: false))
     })
 
@@ -184,6 +186,7 @@ let allTools: [Tool] = {
         let s = try store(); var it = try find(s, try requireString(a, "id"))
         guard let due = ISO8601DateFormatter().date(from: try requireString(a, "due")) else { throw ToolError(message: "due must be an ISO 8601 date and time with a time zone, e.g. 2026-11-06T09:00:00+01:00.") }
         it.reminders.append(Reminder(text: try requireString(a, "text"), due: due, nudge: a["nudge"] as? Bool ?? true))
+        it.updated = Date()
         return try text(dict(try s.save(it), full: true))
     })
 
@@ -192,6 +195,7 @@ let allTools: [Tool] = {
         let s = try store(); var it = try find(s, try requireString(a, "id"))
         let p = NotyStore.parsePath(try requireString(a, "path")); guard !p.isEmpty else { throw ToolError(message: "path is empty.") }
         it.path = p
+        it.updated = Date()
         return try text(dict(try s.save(it), full: false))
     })
 
@@ -199,6 +203,7 @@ let allTools: [Tool] = {
                   properties: ["id": prop("string", "Item id."), "done": prop("boolean", "Default true.")], required: ["id"]) { a in
         let s = try store(); var it = try find(s, try requireString(a, "id"))
         it.done = a["done"] as? Bool ?? true
+        it.updated = Date()
         return try text(dict(try s.save(it), full: false))
     })
 

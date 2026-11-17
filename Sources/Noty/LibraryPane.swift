@@ -37,6 +37,7 @@ struct LibraryPane: View {
                             .buttonStyle(Pill(kind: .primary)).disabled(items.isEmpty).fixedSize()
                     }.fixedSize(horizontal: false, vertical: true)
                 }
+                QuickDateBar()
                 if lib.filter.isFiltering { ActiveFilterChips() }
                 if !lib.loaded { SkeletonList(rows: 7).frame(maxHeight: .infinity, alignment: .top).padding(.top, 20) }
                 else { list(items) }
@@ -144,6 +145,8 @@ struct ItemRow: View {
                         if !item.attachments.isEmpty { Label("\(item.attachments.filter { !$0.hasSuffix(".html") }.count)", systemImage: "paperclip").font(.system(size: 11)).foregroundStyle(.secondary) }
                         if let a = item.sourceApp { SourceLabel(app: a, hasLink: item.sourceURL != nil) }
                         ForEach(item.tags.prefix(3), id: \.self) { Badge(text: "#\($0)", kind: .neutral) }
+                        let shownDate = (lib.filter.sort == .updated || lib.filter.dateField == .updated) ? item.updated : item.created
+                        Text(shownDate.formatted(date: .abbreviated, time: .omitted)).font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain)
@@ -231,6 +234,13 @@ struct InspectorView: View {
                 }
 
                 group("Tags") { TextField("comma, separated", text: $tagText).fieldBox() }
+
+                group("Dates") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack { Text("Created").foregroundStyle(.secondary); Spacer(); Text(item.created.formatted(date: .abbreviated, time: .shortened)) }
+                        HStack { Text("Updated").foregroundStyle(.secondary); Spacer(); Text(item.updated.formatted(date: .abbreviated, time: .shortened)) }
+                    }.font(.system(size: 12))
+                }
 
                 group("Ask an agent") {
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {

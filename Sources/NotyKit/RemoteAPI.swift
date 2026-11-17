@@ -113,12 +113,15 @@ public struct RemoteAPI: Sendable {
     }
 
     private func summary(_ it: Item) -> [String: Any] {
-        var d: [String: Any] = ["id": it.id, "title": it.title, "kind": it.kind.rawValue, "done": it.done, "today": it.today, "path": it.path.joined(separator: " › "), "tags": it.tags]
+        var d: [String: Any] = ["id": it.id, "title": it.title, "kind": it.kind.rawValue, "done": it.done, "today": it.today, "path": it.path.joined(separator: " › "), "tags": it.tags,
+                                "created": Self.iso.string(from: it.created), "updated": Self.iso.string(from: it.updated)]
         let files = it.attachments.filter { !$0.lowercased().hasSuffix(".html") }.count
         if files > 0 { d["attachments"] = files }
         if !it.reminders.filter({ !$0.done }).isEmpty { d["reminders"] = it.reminders.filter { !$0.done }.count }
         return d
     }
+
+    nonisolated(unsafe) private static let iso = ISO8601DateFormatter()
 
     private func list(_ req: HTTPRequest) -> HTTPResponse {
         let items = store.load().items
@@ -157,8 +160,9 @@ public struct RemoteAPI: Sendable {
         }
         if let u = it.sourceURL { d["sourceURL"] = u }
         if let t = it.sourceTitle { d["sourceTitle"] = t }
-        d["created"] = ISO8601DateFormatter().string(from: it.created)
-        d["reminders"] = it.reminders.sorted { $0.due < $1.due }.map { ["text": $0.text, "due": ISO8601DateFormatter().string(from: $0.due), "done": $0.done] as [String: Any] }
+        d["created"] = Self.iso.string(from: it.created)
+        d["updated"] = Self.iso.string(from: it.updated)
+        d["reminders"] = it.reminders.sorted { $0.due < $1.due }.map { ["text": $0.text, "due": Self.iso.string(from: $0.due), "done": $0.done] as [String: Any] }
         return .json(d)
     }
 
@@ -180,6 +184,7 @@ public struct RemoteAPI: Sendable {
         case "detach":
             guard let name = b["name"] as? String, it.attachments.contains(name) else { return .error(404, "No such attachment.") }
             it.attachments.removeAll { $0 == name }
+            it.updated = Date()
             let saved = try store.save(it)
             try? FileManager.default.trashItem(at: store.attachmentURL(name), resultingItemURL: nil)
             return .json(summary(saved))
@@ -188,6 +193,7 @@ public struct RemoteAPI: Sendable {
         case "notes": it.notes = String((b["notes"] as? String ?? "").prefix(100_000))
         default: return .error(404, "Not found.")
         }
+        it.updated = Date()
         return .json(summary(try store.save(it)))
     }
 
@@ -236,6 +242,7 @@ public extension NotyStore {
         var n = it.attachments.count + 1
         while it.attachments.contains(where: { $0.hasPrefix("\(it.id.prefix(8).lowercased())-\(n).") }) { n += 1 }
         it.attachments.append(try saveAttachment(data, itemID: it.id, index: n, ext: ext))
+        it.updated = Date()
         return try save(it)
     }
 }

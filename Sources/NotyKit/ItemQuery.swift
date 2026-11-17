@@ -8,20 +8,50 @@ public struct ItemQuery: Equatable, Sendable {
         case any, open, done
         public var label: String { switch self { case .any: "Any"; case .open: "Open"; case .done: "Done" } }
     }
-    public enum DateRange: String, CaseIterable, Sendable {
-        case any, day, week, month, year
+    public enum DateField: String, CaseIterable, Sendable {
+        case created, updated
         public var label: String {
-            switch self { case .any: "Any time"; case .day: "Last 24 hours"; case .week: "Last 7 days"; case .month: "Last 30 days"; case .year: "Last year" }
-        }
-        var seconds: TimeInterval? {
-            switch self { case .any: nil; case .day: 86_400; case .week: 7 * 86_400; case .month: 30 * 86_400; case .year: 365 * 86_400 }
+            switch self { case .created: "Created"; case .updated: "Updated" }
         }
     }
-    public enum Sort: String, CaseIterable, Sendable {
-        case relevance, newest, oldest, titleAZ, titleZA, category, nextReminder
+    public enum DateRange: String, CaseIterable, Sendable {
+        case any, today, yesterday, day, thisWeek, week, thisMonth, month, year, custom
         public var label: String {
             switch self {
-            case .relevance: "Best match"; case .newest: "Newest first"; case .oldest: "Oldest first"; case .titleAZ: "Title A–Z"
+            case .any: "Any time"
+            case .today: "Today"
+            case .yesterday: "Yesterday"
+            case .day: "Last 24 hours"
+            case .thisWeek: "This week"
+            case .week: "Last 7 days"
+            case .thisMonth: "This month"
+            case .month: "Last 30 days"
+            case .year: "Last year"
+            case .custom: "Custom range"
+            }
+        }
+        public var shortLabel: String {
+            switch self {
+            case .any: "All"
+            case .today: "Today"
+            case .yesterday: "Yesterday"
+            case .day: "24h"
+            case .thisWeek: "This week"
+            case .week: "7 days"
+            case .thisMonth: "This month"
+            case .month: "30 days"
+            case .year: "Year"
+            case .custom: "Custom…"
+            }
+        }
+        /// Presets shown in the quick-filter bar.
+        public static let quickPresets: [DateRange] = [.any, .today, .yesterday, .thisWeek, .week, .thisMonth, .month, .year, .custom]
+    }
+    public enum Sort: String, CaseIterable, Sendable {
+        case relevance, newest, updated, oldest, titleAZ, titleZA, category, nextReminder
+        public var label: String {
+            switch self {
+            case .relevance: "Best match"; case .newest: "Newest first"; case .updated: "Recently updated"; case .oldest: "Oldest first"; case .titleAZ: "Title A–Z"
             case .titleZA: "Title Z–A"; case .category: "Category"; case .nextReminder: "Next reminder"
             }
         }
@@ -35,13 +65,18 @@ public struct ItemQuery: Equatable, Sendable {
     public var onlyToday = false
     public var withReminders = false
     public var withAttachments = false
+    public var dateField: DateField = .created
     public var added: DateRange = .any
+    public var dateFrom: Date?
+    public var dateTo: Date?
     public var sort: Sort = .newest
 
     public init() {}
 
+    public var hasDateFilter: Bool { added != .any || dateFrom != nil || dateTo != nil }
+
     public var activeFilterCount: Int {
-        tags.count + categories.count + kinds.count + (status == .any ? 0 : 1) + (onlyToday ? 1 : 0) + (withReminders ? 1 : 0) + (withAttachments ? 1 : 0) + (added == .any ? 0 : 1)
+        tags.count + categories.count + kinds.count + (status == .any ? 0 : 1) + (onlyToday ? 1 : 0) + (withReminders ? 1 : 0) + (withAttachments ? 1 : 0) + (hasDateFilter ? 1 : 0)
     }
     public var isFiltering: Bool { activeFilterCount > 0 }
 
@@ -71,8 +106,47 @@ public struct ItemQuery: Equatable, Sendable {
         if onlyToday, !it.today { return false }
         if withReminders, !it.reminders.contains(where: { !$0.done }) { return false }
         if withAttachments, !it.attachments.contains(where: { !$0.lowercased().hasSuffix(".html") }) { return false }
-        if let s = added.seconds, it.created < now.addingTimeInterval(-s) { return false }
+        let targetDate = dateField == .created ? it.created : it.updated
+        if !matchesDate(targetDate, now: now) { return false }
         return true
+    }
+
+    private func matchesDate(_ date: Date, now: Date) -> Bool {
+        let cal = Calendar.current
+        switch added {
+        case .any:
+            if dateFrom != nil || dateTo != nil {
+                if let from = dateFrom, date < cal.startOfDay(for: from) { return false }
+                if let to = dateTo, let end = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: to)), date >= end { return false }
+            }
+            return true
+        case .today:
+            let start = cal.startOfDay(for: now)
+            guard let end = cal.date(byAdding: .day, value: 1, to: start) else { return true }
+            return date >= start && date < end
+        case .yesterday:
+            let end = cal.startOfDay(for: now)
+            guard let start = cal.date(byAdding: .day, value: -1, to: end) else { return true }
+            return date >= start && date < end
+        case .day:
+            return date >= now.addingTimeInterval(-86_400)
+        case .thisWeek:
+            guard let iv = cal.dateInterval(of: .weekOfYear, for: now) else { return true }
+            return date >= iv.start && date < iv.end
+        case .week:
+            return date >= now.addingTimeInterval(-7 * 86_400)
+        case .thisMonth:
+            guard let iv = cal.dateInterval(of: .month, for: now) else { return true }
+            return date >= iv.start && date < iv.end
+        case .month:
+            return date >= now.addingTimeInterval(-30 * 86_400)
+        case .year:
+            return date >= now.addingTimeInterval(-365 * 86_400)
+        case .custom:
+            if let from = dateFrom, date < cal.startOfDay(for: from) { return false }
+            if let to = dateTo, let end = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: to)), date >= end { return false }
+            return true
+        }
     }
 
     /// Filters, then sorts. Ties always fall back to the id so the order never flickers.
@@ -86,6 +160,7 @@ public struct ItemQuery: Equatable, Sendable {
             func rank(_ i: Item) -> Int { let t = Self.fold(i.title); return w.allSatisfy(t.contains) ? 0 : (w.contains(where: t.contains) ? 1 : 2) }
             return hits.sorted { let (x, y) = (rank($0), rank($1)); return x != y ? x < y : newest($0, $1) }
         case .relevance, .newest: return hits.sorted(by: newest)
+        case .updated: return hits.sorted { $0.updated != $1.updated ? $0.updated > $1.updated : newest($0, $1) }
         case .oldest: return hits.sorted { $0.created != $1.created ? $0.created < $1.created : $0.id < $1.id }
         case .titleAZ, .titleZA:
             let up = sort == .titleAZ
@@ -133,6 +208,14 @@ public struct ItemQuery: Equatable, Sendable {
     public static func encodeKey(_ s: String) -> String { s.addingPercentEncoding(withAllowedCharacters: keyAllowed) ?? s }
     private static let keyAllowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
 
+    private static let dayParser: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = .current
+        return f
+    }()
+
     public init(query d: [String: String]) {
         func list(_ k: String, _ sep: Character) -> [String] { (d[k] ?? "").split(separator: sep).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
         text = d["q"] ?? ""
@@ -141,7 +224,11 @@ public struct ItemQuery: Equatable, Sendable {
         kinds = Set(list("kinds", ",").compactMap { ItemKind(rawValue: $0) })
         status = d["status"].flatMap(Status.init(rawValue:)) ?? .any
         onlyToday = d["today"] == "1"; withReminders = d["reminders"] == "1"; withAttachments = d["attachments"] == "1"
+        dateField = d["date_field"].flatMap(DateField.init(rawValue:)) ?? .created
         added = d["added"].flatMap(DateRange.init(rawValue:)) ?? .any
+        dateFrom = d["from"].flatMap { Self.dayParser.date(from: $0) }
+        dateTo = d["to"].flatMap { Self.dayParser.date(from: $0) }
+        if added == .any && (dateFrom != nil || dateTo != nil) { added = .custom }
         sort = d["sort"].flatMap(Sort.init(rawValue:)) ?? .newest
     }
 
@@ -155,7 +242,12 @@ public struct ItemQuery: Equatable, Sendable {
         if onlyToday { d["today"] = "1" }
         if withReminders { d["reminders"] = "1" }
         if withAttachments { d["attachments"] = "1" }
+        if dateField != .created { d["date_field"] = dateField.rawValue }
         if added != .any { d["added"] = added.rawValue }
+        if added == .custom {
+            if let from = dateFrom { d["from"] = Self.dayParser.string(from: from) }
+            if let to = dateTo { d["to"] = Self.dayParser.string(from: to) }
+        }
         if sort != .newest { d["sort"] = sort.rawValue }
         return d
     }

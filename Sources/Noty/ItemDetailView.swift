@@ -31,6 +31,8 @@ struct ItemDetailView: View {
                         KindBadge(kind: item.kind)
                         Text(item.pathLabel).font(.system(size: 12)).foregroundStyle(.secondary)
                         if let a = item.sourceApp { SourceLabel(app: a, hasLink: item.sourceURL != nil) }
+                        Text("· Created \(item.created.formatted(date: .abbreviated, time: .shortened)) · Updated \(item.updated.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
                 Spacer()

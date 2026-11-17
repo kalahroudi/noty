@@ -120,6 +120,8 @@ final class LibraryModel {
     }
 
     func update(_ item: Item) {
+        var item = item
+        item.updated = Date()
         let before = items.first { $0.id == item.id }
         let wasDone = before?.done
         guard let saved = run("Save the item", { try store.save(item) }) else { return }

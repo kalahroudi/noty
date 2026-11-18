@@ -76,7 +76,7 @@ struct LibraryPane: View {
         let groups = grouped ? Dictionary(grouping: items, by: \.pathLabel).sorted { $0.key.localizedStandardCompare($1.key) == .orderedAscending } : [(key: "", value: items)]
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
-                if lib.scope != .done, lib.query.isEmpty, !lib.filter.isFiltering { quickAdd }
+                if lib.scope != .done { quickAdd }
                 if items.isEmpty { empty }
                 ForEach(groups, id: \.key) { g in
                     if grouped, groups.count > 1 || lib.scope != .category(g.value[0].path) {
@@ -100,7 +100,13 @@ struct LibraryPane: View {
         guard !t.isEmpty else { return }
         var path = [NotyStore.inbox]
         if case .category(let p) = lib.scope { path = p }
-        if let saved = lib.add(Item(title: t, today: lib.scope == .today, path: path)) { lib.selectedID = saved.id }
+        if let saved = lib.add(Item(title: t, today: lib.scope == .today, path: path)) {
+            lib.selectedID = saved.id
+            // The search or filters may hide the new task; it stays selected in the inspector, and the toast says where it went.
+            if !lib.visibleItems().contains(where: { $0.id == saved.id }) {
+                AppModel.shared.show("Added to \(saved.pathLabel). It is hidden by the current \(lib.query.isEmpty ? "filters" : "search").")
+            }
+        }
         quickTitle = ""
     }
 
